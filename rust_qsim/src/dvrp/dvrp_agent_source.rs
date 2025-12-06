@@ -89,7 +89,7 @@ impl DrtAgentSource {
             //     Some(start),
             //     None,
             // ));
-
+            
             let person = InternalPerson::new(person_id, plan);
 
             let agent_id = Id::<InternalPerson>::create(veh_id.external());

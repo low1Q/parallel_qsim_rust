@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{info, warn};
 
 pub mod routing;
+pub mod event_sharing;
 
 /// This trait is a marker trait for requests that can be sent to an adapter.
 pub trait RequestToAdapter: Debug + Send {}
@@ -28,6 +29,7 @@ pub struct AdapterHandle {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalServiceType {
     Routing(String),
+    EventSharing(String),
 }
 
 /// This trait defines a factory for creating request adapters.

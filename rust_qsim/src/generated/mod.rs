@@ -37,6 +37,10 @@ pub mod routing {
     include!(concat!(env!("OUT_DIR"), "/routing.rs"));
 }
 
+pub mod event_sharing {
+    include!(concat!(env!("OUT_DIR"), "/event_sharing.rs"));
+}
+
 pub fn read_from_file<T: Message + Default>(path: &Path) -> T {
     info!("Loading message from file at: {path:?}");
     let mut reader = File::open(path).unwrap_or_else(|_| panic!("Could not open File at {path:?}"));

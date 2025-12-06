@@ -4,6 +4,7 @@ use crate::simulation::id::Id;
 use crate::simulation::population::InternalPerson;
 use crate::simulation::scenario::ScenarioPartition;
 use std::collections::HashMap;
+//use crate::simulation::population::trip_structure_utils::identify_main_mode;
 
 pub trait AgentSource {
     fn create_agents(
@@ -56,8 +57,20 @@ impl PopulationAgentSource {
                     .contains_key(crate::simulation::population::PREPLANNING_HORIZON)
             });
 
+        // let mode = identify_main_mode(trip.legs).unwrap_or_else(|| {
+        //     panic!(
+        //         "Could not identify main mode for trip starting at activity {:?} in agent {:?}",
+        //         self.delegate.curr_act(),
+        //         self.delegate.id()
+        //     )
+        // });
+
+        //&& !is_person_with_special_job && is_person_just_with_berlin && !is_person_with_error && !is_person_with_error2 
         if has_at_least_one_preplanning_horizon {
+            // if there is at least one leg with rolling horizon logic, we create an AdaptivePlanBasedSimulationLogic
+ //           println!("Created adaptive plan based agent for person id: {}", id.external());
             agents.insert(id, SimulationAgent::new_adaptive_plan_based(person));
+// has_at_least_one_preplanning_horizon && !is_person_with_error3 &&
         } else {
             // if there is no rolling horizon logic, we assume that the person has a plan logic
             // and we create a InternalSimulationAgent with plan logic

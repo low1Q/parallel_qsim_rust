@@ -210,8 +210,9 @@ impl SimNetworkPartition {
         events_publisher: Option<Rc<RefCell<EventsPublisher>>>,
         now: u32,
     ) {
+ //       println!("Sending vehicle {} en route", vehicle.id);
         let link_id = vehicle.curr_link_id().unwrap_or_else(|| {
-            panic!("Vehicle is expected to have a current link id if it is sent onto the network")
+            panic!("Vehicle {} is expected to have a current link id if it is sent onto the network", vehicle.id)
         });
         let link = self.links.get_mut(link_id).unwrap_or_else(|| {
             let agent_id = vehicle.id();

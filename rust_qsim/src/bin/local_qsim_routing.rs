@@ -1,5 +1,6 @@
 use clap::Parser;
 use rust_qsim::external_services::routing::RoutingServiceAdapterFactory;
+use rust_qsim::external_services::event_sharing::EventSharingServiceAdapterFactory;
 use rust_qsim::external_services::{AdapterHandleBuilder, AsyncExecutor, ExternalServiceType};
 use rust_qsim::simulation::config::Config;
 use rust_qsim::simulation::controller;
@@ -24,20 +25,38 @@ fn main() {
     let config = Arc::new(Config::from(args.delegate));
 
     // Creating the routing adapter is only one task, so we add 1 and not the number of worker threads!
-    let total_thread_count = config.partitioning().num_parts + 1;
+    let total_thread_count = config.partitioning().num_parts + 2;
     let barrier = Arc::new(Barrier::new(total_thread_count as usize));
 
-    let executor = AsyncExecutor::from_config(&config, barrier.clone());
-    let factory = RoutingServiceAdapterFactory::new(
+    let car_executor = AsyncExecutor::from_config(&config, barrier.clone());
+    let car_factory = RoutingServiceAdapterFactory::new(
         vec![&args.router_ip],
         config.clone(),
-        executor.shutdown_handles(),
+        car_executor.shutdown_handles(),
     );
 
-    let (router_handle, send, send_sd) = executor.spawn_thread("router", factory);
+    let event_sharing_executor = AsyncExecutor::from_config(&config, barrier.clone());
+    let event_sharing_factory = EventSharingServiceAdapterFactory::new(
+        vec![&args.router_ip],
+        config.clone(),
+        event_sharing_executor.shutdown_handles(),
+    );
+
+    // let pt_executor = AsyncExecutor::from_config(&config, barrier.clone());
+    // let pt_factory = RoutingServiceAdapterFactory::new(
+    //     vec![&args.router_ip],
+    //     config.clone(),
+    //     pt_executor.shutdown_handles(),
+    // );
+
+    let (car_router_handle, car_send, car_send_sd) = car_executor.spawn_thread("car_router", car_factory);
+    let (event_sharing_handle, event_sharing_send, event_sharing_send_sd) = event_sharing_executor.spawn_thread("event_sharing", event_sharing_factory);
+    // let (pt_router_handle, pt_send, pt_send_sd) = pt_executor.spawn_thread("pt_Router", pt_factory);
 
     let mut services = ExternalServices::default();
-    services.insert(ExternalServiceType::Routing("pt".into()), send.into());
+    services.insert(ExternalServiceType::Routing("car".into()), car_send.into());
+    // services.insert(ExternalServiceType::Routing("pt".into()), pt_send.into());
+    services.insert(ExternalServiceType::EventSharing("event_sharing".into()), event_sharing_send.into());
 
     let scenario = GlobalScenario::build(config);
 
@@ -53,9 +72,20 @@ fn main() {
     controller::try_join(
         sim_handles,
         vec![AdapterHandleBuilder::default()
-            .shutdown_sender(send_sd)
-            .handle(router_handle)
+            .shutdown_sender(car_send_sd)
+            .handle(car_router_handle)
             .build()
-            .unwrap()],
+            .unwrap(),
+             AdapterHandleBuilder::default()
+                 .shutdown_sender(event_sharing_send_sd)
+                 .handle(event_sharing_handle)
+                 .build()
+                 .unwrap()],
     )
 }
+//,
+//          AdapterHandleBuilder::default()
+//              .shutdown_sender(pt_send_sd)
+//              .handle(pt_router_handle)
+//              .build()
+//              .unwrap()

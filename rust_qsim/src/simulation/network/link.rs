@@ -87,13 +87,13 @@ impl SimLink {
             }
         }
     }
-
+//{
+//                 panic!("In Links can't accept vehicles")
+//             }
     pub fn is_available(&self) -> bool {
         match self {
             SimLink::Local(ll) => ll.is_available(),
-            SimLink::In(_) => {
-                panic!("In Links can't accept vehicles")
-            }
+            SimLink::In(_) => false,
             SimLink::Out(ol) => ol.storage_cap.is_available(),
         }
     }

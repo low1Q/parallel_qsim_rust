@@ -59,7 +59,7 @@ rust_qsim = { path = ".", features = ["test_util"] }
 # generates types based on .proto files
 prost-build = "0.13.5"
 # provides the protoc compiler - this makes the build slow but one doesn't need to install the protoc compiler as prerequisite.
-protobuf-src = "2.1.1"
+# protobuf-src = "2.1.1"
 tonic-build = "0.13.1"
 
 [[test]]

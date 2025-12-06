@@ -348,17 +348,30 @@ impl AdaptivePlanBasedSimulationLogic {
                 self.delegate.id()
             )
         });
-
-        let payload = InternalRoutingRequestPayloadBuilder::default()
-            .person_id(self.delegate.id().external().to_string())
-            .from_link(self.delegate.curr_act().link_id.external().to_string())
-            .to_link(self.delegate.next_act().link_id.external().to_string())
-            .mode(mode.clone())
-            .departure_time(departure_time)
-            .now(now)
-            .build()
-            .unwrap();
-
+        let payload = if mode.eq("car") {
+            // spezielles Verhalten für "car" (hier dieselbe Payload-Struktur, kann angepasst werden)
+//            println!("Mode was car! Calling router with special behavior for car mode.");
+            InternalRoutingRequestPayloadBuilder::default()
+                .person_id(self.delegate.id().external().to_string())
+                .from_link(self.delegate.curr_act().link_id.external().to_string())
+                .to_link(trip.destination.link_id.external().to_string())
+                .mode(mode.clone())
+                .departure_time(departure_time)
+                .now(now)
+                .build()
+                .unwrap()
+        } else {
+            // bestehendes Verhalten für alle anderen Modi
+            InternalRoutingRequestPayloadBuilder::default()
+                .person_id(self.delegate.id().external().to_string())
+                .from_link(self.delegate.curr_act().link_id.external().to_string())
+                .to_link(self.delegate.next_act().link_id.external().to_string())
+                .mode(mode.clone())
+                .departure_time(departure_time)
+                .now(now)
+                .build()
+                .unwrap()
+         };
         trace!(uuid = payload.uuid.as_u128(), mode = mode.as_str());
 
         let request = InternalRoutingRequest {
@@ -368,7 +381,7 @@ impl AdaptivePlanBasedSimulationLogic {
 
         comp_env
             .get_service::<Sender<InternalRoutingRequest>>(ExternalServiceType::Routing(mode.clone()))
-            .unwrap_or_else(|| panic!("There is not service registered for routing of mode {} and agent id {}. Please make sure that you have started a corresponding thread. Next leg {:?}", mode, self.id(), self.next_leg()))
+            .unwrap_or_else(|| panic!("There is no service registered for routing of mode {} and agent id {}. Please make sure that you have started a corresponding thread. Next leg {:?}", mode, self.id(), self.next_leg()))
             .blocking_send(request)
             .expect("InternalRoutingRequest channel closed unexpectedly");
 

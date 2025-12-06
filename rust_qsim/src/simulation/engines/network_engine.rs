@@ -26,6 +26,8 @@ impl NetworkEngine {
             //this is because the receiving partition is the owner of this link and should publish the event
             Some(self.comp_env.events_publisher())
         };
+//        println!("Send vehicle with VEHICLE ID: {} and current LINK ID: {} en route.", vehicle.id(), vehicle.curr_link_id().unwrap().to_string());
+//        println!("Vehicle_Link_Id: {}", vehicle.curr_link_id().unwrap().to_string());
         self.network.send_veh_en_route(vehicle, events, now)
     }
 
