@@ -48,7 +48,7 @@ fn main() {
 
     // The request sender is passed to the controller.
     let mut services = ExternalServices::default();
-    services.insert(ExternalServiceType::Routing("pt".into()), send.into());
+    services.insert(ExternalServiceType::Routing("car".into()), send.into());
 
     // Load scenario
     let scenario = GlobalScenario::load(config);
