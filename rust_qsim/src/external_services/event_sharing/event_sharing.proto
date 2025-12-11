@@ -1,0 +1,16 @@
+syntax = "proto3";
+package event_sharing;
+
+import "google/protobuf/empty.proto";
+
+service EventSharingService {
+  rpc ShareEvents (Request) returns (google.protobuf.Empty);
+  rpc Shutdown (google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+message Request {
+  string link_type = 1;
+  string link_id = 2;
+  string vehicle_id = 3;
+  uint32 now = 4;
+  bytes request_id = 5;
+}
