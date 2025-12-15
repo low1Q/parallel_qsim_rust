@@ -14,6 +14,7 @@ fn main() {
         "src/simulation/io/proto/types/population.proto",
         "src/simulation/io/proto/types/vehicles.proto",
         "src/external_services/routing/routing.proto",
+        "src/external_services/event_sharing/event_sharing.proto",
     ];
 
     // tell cargo to rerun this build script if any of the proto files change

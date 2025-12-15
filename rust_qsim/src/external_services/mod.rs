@@ -11,6 +11,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{info, warn};
 
 pub mod routing;
+pub mod event_sharing;
 
 /// This trait is a marker trait for requests that can be sent to an adapter.
 pub trait RequestToAdapter: Debug + Send {}
@@ -29,6 +30,7 @@ pub struct AdapterHandle {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalServiceType {
     Routing(String),
+    EventSharing(String),
 }
 
 /// This trait defines a factory for creating request adapters.
@@ -73,7 +75,7 @@ impl AsyncExecutor {
         name: &str,
         request_adapter_factory: F,
     ) -> (JoinHandle<()>, Sender<R>, tokio::sync::watch::Sender<bool>) {
-        let (send, recv) = request_adapter_factory.request_channel(10000);
+        let (send, recv) = request_adapter_factory.request_channel(1000);
         let (send_sd, recv_sd) = self.shutdown_channel();
 
         let handle = thread::Builder::new()

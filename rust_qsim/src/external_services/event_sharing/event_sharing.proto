@@ -4,7 +4,7 @@ package event_sharing;
 import "google/protobuf/empty.proto";
 
 service EventSharingService {
-  rpc ShareEvents (Request) returns (google.protobuf.Empty);
+  rpc UpdateRouter (Request) returns (Ack);
   rpc Shutdown (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 message Request {
@@ -13,4 +13,9 @@ message Request {
   string vehicle_id = 3;
   uint32 now = 4;
   bytes request_id = 5;
+}
+
+message Ack {
+  bool message_received = 1;
+  bytes request_id = 2;
 }
