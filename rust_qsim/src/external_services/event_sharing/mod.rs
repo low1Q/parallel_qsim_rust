@@ -2,7 +2,7 @@ pub mod event_sharing_logger;
 
 use crate::external_services::{RequestAdapter, RequestAdapterFactory, RequestToAdapter};
 use crate::generated::event_sharing::event_sharing_service_client::EventSharingServiceClient;
-use crate::generated::event_sharing::{Request, Ack};
+use crate::generated::event_sharing::{Request, BatchRequest, Ack};
 use crate::simulation::config::Config;
 use crate::simulation::data_structures::RingIter;
 use derive_builder::Builder;
@@ -14,6 +14,11 @@ use uuid::Uuid;
 pub struct EventSharingServiceAdapter {
     clients: RingIter<EventSharingServiceClient<tonic::transport::Channel>>,
     shutdown_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    // Batching
+    buffer: Arc<Mutex<Vec<InternalEventSharingRequestPayload>>>,
+    max_batch_size: usize,
+    batch_interval_millisecs: u64,
+    flusher_handle: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug)]
@@ -75,6 +80,9 @@ pub struct EventSharingServiceAdapterFactory {
     ip: Vec<String>,
     config: Arc<Config>,
     shutdown_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    // Batching
+    max_batch_size: usize,
+    batch_interval_millisecs: u64,
 }
 
 impl EventSharingServiceAdapterFactory {
@@ -87,7 +95,15 @@ impl EventSharingServiceAdapterFactory {
             ip: ip.into_iter().map(|s| s.into()).collect(),
             config,
             shutdown_handles,
+            // Batching
+            max_batch_size: 50,
+            batch_interval_millisecs: 1,
         }
+    }
+    pub fn with_batch_params(mut self, max_batch_size: usize, batch_interval_millisecs: u64) -> Self {
+        self.max_batch_size = max_batch_size;
+        self.batch_interval_millisecs = batch_interval_millisecs;
+        self
     }
 }
 
@@ -119,29 +135,54 @@ impl RequestAdapterFactory<InternalEventSharingRequest> for EventSharingServiceA
             }
             res.push(client);
         }
-        EventSharingServiceAdapter::new(res, self.shutdown_handles)
+        EventSharingServiceAdapter::new(res, self.shutdown_handles, self.max_batch_size, self.batch_interval_millisecs)
     }
 }
 
 impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter {
     fn on_request(&mut self, internal_req: InternalEventSharingRequest) {
-        let mut client = self.clients.next_cloned();
-
-        tokio::spawn(async move {
-            let request = Request::from(internal_req.payload);
-
-            let _response =client
-                .update_router(request)
-                .await
-                .expect("Error while calling event sharing service");
-
-             //let internal_res = InternalEventSharingResponse::from(response.into_inner());
-
-             //let _ = internal_req.response_tx.send(internal_res);
-        });
+        // Nur in den Puffer schreiben; Flusher kümmert sich ums Senden.
+        {
+            let mut buf = self.buffer.lock().unwrap();
+            buf.push(internal_req.payload);
+            if buf.len() >= self.max_batch_size {
+                // Ziehe sofort eine Charge ab und sende asynchron
+                let to_send = std::mem::take(&mut *buf);
+                let mut client = self.clients.next_cloned();
+                // spawn send task
+                tokio::spawn(async move {
+                    let batch_req = BatchRequest {
+                        requests: to_send.into_iter().map(Request::from).collect(),
+                    };
+                    let _ = client.update_router_batch(batch_req).await;
+                });
+            }
+        }
     }
 
     fn on_shutdown(&mut self) {
+        // Flush remaining buffer synchronously (spawn tasks to send them)
+        let leftover = {
+            let mut buf = self.buffer.lock().unwrap();
+            std::mem::take(&mut *buf)
+        };
+        if !leftover.is_empty() {
+            let mut client = self.clients.next_cloned();
+            let _h = tokio::spawn(async move {
+                let batch_req = BatchRequest {
+                    requests: leftover.into_iter().map(Request::from).collect(),
+                };
+                let _ = client.update_router_batch(batch_req).await;
+            });
+            self.shutdown_handles.lock().unwrap().push(_h);
+        }
+
+        // Stop flusher task if present
+        if let Some(handle) = self.flusher_handle.take() {
+            // flusher erwartet Shutdown via join handle; wir just wait for it in shutdown_handles
+            self.shutdown_handles.lock().unwrap().push(handle);
+        }
+        // Shutdown all clients
         for client in &mut self.clients {
             let mut c = client.clone();
             let handle = tokio::spawn(async move {
@@ -158,10 +199,51 @@ impl EventSharingServiceAdapter {
     fn new(
         clients: Vec<EventSharingServiceClient<tonic::transport::Channel>>,
         shutdown_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
+        max_batch_size: usize,
+        batch_interval_millisecs: u64,
     ) -> Self {
+        let buffer = Arc::new(Mutex::new(Vec::with_capacity(max_batch_size)));
+        let buf_clone = buffer.clone();
+        let clients_for_flusher = clients.clone();
+        let clients_ring = RingIter::new(clients);
+        let mut clients_ring_for_flusher = RingIter::new(clients_for_flusher);
+        let flusher_handle = {
+            // Flusher-Task: periodisch flushen
+            let mut clients_ring_inner = clients_ring_for_flusher;
+            tokio::spawn(async move {
+                let interval = tokio::time::interval(std::time::Duration::from_millis(batch_interval_millisecs));
+                tokio::pin!(interval);
+                loop {
+                    interval.as_mut().tick().await;
+                    let to_send = {
+                        let mut guard = buf_clone.lock().unwrap();
+                        if guard.is_empty() {
+                            continue;
+                        }
+                        std::mem::take(&mut *guard)
+                    };
+                    if to_send.is_empty() {
+                        continue;
+                    }
+                    let mut client = clients_ring_inner.next_cloned();
+                    let batch_req = BatchRequest {
+                        requests: to_send.into_iter().map(Request::from).collect(),
+                    };
+                    // Best-Effort send; log on error
+                    if let Err(e) = client.update_router_batch(batch_req).await {
+                        eprintln!("Error sending batch to event sharing service: {}", e);
+                        // optional: requeue or drop
+                    }
+                }
+            })
+        };
         Self {
-            clients: RingIter::new(clients),
+            clients: clients_ring,
             shutdown_handles,
+            buffer,
+            max_batch_size,
+            batch_interval_millisecs: batch_interval_millisecs,
+            flusher_handle: Some(flusher_handle),
         }
     }
 }

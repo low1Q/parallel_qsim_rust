@@ -75,7 +75,7 @@ impl AsyncExecutor {
         name: &str,
         request_adapter_factory: F,
     ) -> (JoinHandle<()>, Sender<R>, tokio::sync::watch::Sender<bool>) {
-        let (send, recv) = request_adapter_factory.request_channel(1000);
+        let (send, recv) = request_adapter_factory.request_channel(10000);
         let (send_sd, recv_sd) = self.shutdown_channel();
 
         let handle = thread::Builder::new()

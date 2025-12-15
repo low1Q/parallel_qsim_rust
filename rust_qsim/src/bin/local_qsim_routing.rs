@@ -50,7 +50,7 @@ fn main() {
         vec![&args.router_ip],
         config.clone(),
         event_sharing_executor.shutdown_handles(),
-    );
+    ).with_batch_params(10000, 10);
 
     // Spawning the routing service adapter in a separate thread. The adapter will be run in its own tokio runtime.
     // This function returns
