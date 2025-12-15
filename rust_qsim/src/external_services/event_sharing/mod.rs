@@ -1,20 +1,15 @@
 pub mod event_sharing_logger;
 
 use crate::external_services::{RequestAdapter, RequestAdapterFactory, RequestToAdapter};
-// use crate::external_services::event_sharing::event_sharing_logger::make_event_sharing_subscriber;
 use crate::generated::event_sharing::event_sharing_service_client::EventSharingServiceClient;
 use crate::generated::event_sharing::{Request, Ack};
 use crate::simulation::config::Config;
 use crate::simulation::data_structures::RingIter;
 use derive_builder::Builder;
-//use itertools::{EitherOrBoth, Itertools};
 use std::sync::{Arc, Mutex};
-// use tokio::sync::oneshot;
-// use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tracing::info;
 use uuid::Uuid;
-use crate::simulation::events::{EventTrait, EventsPublisher};
 
 pub struct EventSharingServiceAdapter {
     clients: RingIter<EventSharingServiceClient<tonic::transport::Channel>>,
