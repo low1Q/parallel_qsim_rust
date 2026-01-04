@@ -10,13 +10,13 @@ service RoutingService {
 }
 
 message Request {
-  string person_id = 1;
-  string from_link_id = 2;
+  uint32 person_id = 1;
+  uint32 from_link_id = 2;
   double from_x = 3;
   double from_y = 4;
   double to_x = 5;
   double to_y = 6;
-  string to_link_id = 7;
+  uint32 to_link_id = 7;
   string mode = 8;
   uint32 departure_time = 9;
   uint32 now = 10;

@@ -353,13 +353,13 @@ mod tests {
             assert!(request.is_some());
 
             let payload = InternalRoutingRequestPayloadBuilder::default()
-                .person_id("1".to_string())
-                .from_link("start".to_string())
+                .person_id(1)
+                .from_link(1)
                 .from_x(0.0)
                 .from_y(0.0)
                 .to_x(0.0)
                 .to_y(0.0)
-                .to_link("end".to_string())
+                .to_link(2)
                 .mode("mode".to_string())
                 .departure_time(10)
                 .now(5)

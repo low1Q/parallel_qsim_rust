@@ -1,12 +1,15 @@
 pub mod event_sharing_logger;
 
+
+use crate::generated::event_sharing::{Ack, EventType};
 use crate::external_services::{RequestAdapter, RequestAdapterFactory, RequestToAdapter};
 use crate::generated::event_sharing::event_sharing_service_client::EventSharingServiceClient;
-use crate::generated::event_sharing::{Request, BatchRequest, Ack};
+use crate::generated::event_sharing::{BatchRequest, Request};
 use crate::simulation::config::Config;
 use crate::simulation::data_structures::RingIter;
 use derive_builder::Builder;
 use std::sync::{Arc, Mutex};
+// use prost_types::Empty;
 use tokio::task::JoinHandle;
 use tracing::info;
 use uuid::Uuid;
@@ -31,47 +34,47 @@ impl RequestToAdapter for InternalEventSharingRequest {}
 
 #[derive(Debug, PartialEq, Builder)]
 pub struct InternalEventSharingRequestPayload {
-    pub link_type: String,
-    pub link_id: String,
-    pub vehicle_id: String,
+    pub event_type: EventType,
+    pub link_id: u32,
+    pub vehicle_id: u32,
     pub now: u32,
-    #[builder(default = "Uuid::now_v7()")]
-    pub uuid: Uuid,
+    pub driver_id: Option<u32>,
+    pub network_mode: Option<String>,
+    pub relative_position_on_link: Option<f64>,
 }
 
 impl InternalEventSharingRequestPayload {
     pub fn equals_ignoring_uuid(&self, other: &Self) -> bool {
-        self.link_type == other.link_type
+        self.event_type == other.event_type
             && self.link_id == other.link_id
             && self.vehicle_id == other.vehicle_id
             && self.now == other.now
+            && self.driver_id == other.driver_id
+            && self.network_mode == other.network_mode
+            && self.relative_position_on_link == other.relative_position_on_link
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct InternalEventSharingResponse {
-    pub(crate) message_received: bool,
-    pub(crate) request_id: Uuid,
-}
+pub struct InternalEventSharingResponse {}
 
 impl From<InternalEventSharingRequestPayload> for Request {
     fn from(req: InternalEventSharingRequestPayload) -> Self {
         Request {
-            link_type: req.link_type,
+            event_type: req.event_type as i32,
             link_id: req.link_id,
             vehicle_id: req.vehicle_id,
             now: req.now,
-            request_id: req.uuid.as_bytes().to_vec(),
+            network_mode: req.network_mode,
+            driver_id: req.driver_id,
+            relative_position_on_link: req.relative_position_on_link,
         }
     }
 }
 
 impl From<Ack> for InternalEventSharingResponse {
-    fn from(value: Ack) -> Self {
-        Self {
-            message_received: value.message_received,
-            request_id: Uuid::from_bytes(value.request_id.try_into().expect("Invalid UUID bytes")),
-        }
+    fn from(_resp: Ack) -> Self {
+        InternalEventSharingResponse {}
     }
 }
 
@@ -153,6 +156,7 @@ impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter 
                 tokio::spawn(async move {
                     let batch_req = BatchRequest {
                         requests: to_send.into_iter().map(Request::from).collect(),
+                        request_id: None,
                     };
                     let _ = client.update_router_batch(batch_req).await;
                 });
@@ -171,6 +175,7 @@ impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter 
             let _h = tokio::spawn(async move {
                 let batch_req = BatchRequest {
                     requests: leftover.into_iter().map(Request::from).collect(),
+                    request_id: None,
                 };
                 let _ = client.update_router_batch(batch_req).await;
             });
@@ -228,6 +233,7 @@ impl EventSharingServiceAdapter {
                     let mut client = clients_ring_inner.next_cloned();
                     let batch_req = BatchRequest {
                         requests: to_send.into_iter().map(Request::from).collect(),
+                        request_id: None,
                     };
                     // Best-Effort send; log on error
                     if let Err(e) = client.update_router_batch(batch_req).await {

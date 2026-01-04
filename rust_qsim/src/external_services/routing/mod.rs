@@ -27,11 +27,11 @@ impl RequestToAdapter for InternalRoutingRequest {}
 
 #[derive(Debug, PartialEq, Builder)]
 pub struct InternalRoutingRequestPayload {
-    pub person_id: String,
-    pub from_link: String,
+    pub person_id: u32,
+    pub from_link: u32,
     pub from_x: f64,
     pub from_y: f64,
-    pub to_link: String,
+    pub to_link: u32,
     pub to_x: f64,
     pub to_y: f64,
     pub mode: String,

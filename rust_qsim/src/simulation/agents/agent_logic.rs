@@ -361,11 +361,11 @@ impl AdaptivePlanBasedSimulationLogic {
         });
 
         let payload = InternalRoutingRequestPayloadBuilder::default()
-            .person_id(self.delegate.id().external().to_string())
-            .from_link(origin.link_id.external().to_string())
+            .person_id(self.delegate.id().internal() as u32)
+            .from_link(origin.link_id.internal() as u32)
             .from_x(origin.x)
             .from_y(origin.y)
-            .to_link(destination.link_id.external().to_string())
+            .to_link(destination.link_id.internal() as u32)
             .to_x(destination.x)
             .to_y(destination.y)
             .mode(mode.clone())
@@ -415,6 +415,53 @@ impl AdaptivePlanBasedSimulationLogic {
 
         response
     }
+
+    // fn replace_next_trip(&mut self, response: InternalRoutingResponse, _now: u32) {
+    //     if response.elements.is_empty() {
+    //         return;
+    //     }
+    //
+    //     let plan = self.delegate.basic_agent_delegate.selected_plan_mut();
+    //     let start_index = self.delegate.curr_plan_element;
+    //
+    //     // 1. Finde den Trip-Bereich (zwischen zwei Hauptaktivitäten)
+    //     let trip = find_trip_starting_at_activity_default(&plan.elements, start_index)
+    //         .expect("No trip found starting at the current plan element");
+    //
+    //     let origin_idx = plan.elements.iter().position(|e| e.as_activity() == Some(&trip.origin))
+    //         .expect("Didn't find the origin activity in the plan");
+    //     let dest_idx = plan.elements.iter().position(|e| e.as_activity() == Some(&trip.destination))
+    //         .expect("Didn't find the destination activity in the plan");
+    //
+    //     // 2. Entscheidungslogik: Spezialbehandlung für Car
+    //     // Wir prüfen, ob die Antwort ein Car-Leg enthält (oder ein Flag in der Response)
+    //     let is_car_routing = response.elements.iter().any(|e| {
+    //         e.as_leg().map_or(false, |l| l.mode.external() == "car")
+    //     });
+    //
+    //     if is_car_routing {
+    //         // --- Chirurgische Ersetzung des Car-Legs ---
+    //         let car_leg_in_plan_pos = plan.elements[origin_idx..dest_idx]
+    //             .iter()
+    //             .position(|e| e.as_leg().map_or(false, |l| l.mode.external() == "car"));
+    //
+    //         if let Some(rel_idx) = car_leg_in_plan_pos {
+    //             let abs_idx = origin_idx + rel_idx;
+    //
+    //             // Finde das Car-Leg in der Java-Antwort
+    //             if let Some(new_car_leg) = response.elements.iter().find(|e| e.as_leg().map_or(false, |l| l.mode.external() == "car")) {
+    //                 plan.elements[abs_idx] = new_car_leg.clone();
+    //                 trace!("Surgically replaced car leg at index {}", abs_idx);
+    //                 return; // Job erledigt
+    //             }
+    //         }
+    //     }
+    //
+    //     // --- Fallback: Standard-Splice für alle anderen Modi (Walk, PT, etc.) ---
+    //     // Dies wird ausgeführt, wenn kein Car-Leg gefunden wurde oder es kein Car-Routing war
+    //     plan.elements.splice(origin_idx + 1..dest_idx, response.elements);
+    //     trace!("Spliced trip elements between {} and {}", origin_idx, dest_idx);
+    // }
 
     /// Replaces the next trip in the plan with the legs and activities from the given InternalRoutingResponse.
     #[tracing::instrument(level = "trace", skip(response), fields(person_id = self.delegate.id().external()))]

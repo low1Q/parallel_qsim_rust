@@ -4,23 +4,35 @@ package event_sharing;
 import "google/protobuf/empty.proto";
 
 service EventSharingService {
-  rpc UpdateRouter (Request) returns (Ack);
-  rpc UpdateRouterBatch (BatchRequest) returns (Ack);
+  rpc UpdateRouterSingleEvent(Request) returns (Ack);
+  rpc UpdateRouterBatch(BatchRequest) returns (Ack);
   rpc Shutdown (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 message Request {
-  string link_type = 1;
-  string link_id = 2;
-  string vehicle_id = 3;
-  uint32 now = 4;
-  bytes request_id = 5;
+  EventType event_type = 1;
+  uint32 now = 2;
+  uint32 link_id = 3;    // Korrespondiert mit Id.index() in Java
+  uint32 vehicle_id = 4; // Korrespondiert mit Id.index() in Java
+
+  optional uint32 driver_id = 6;
+  optional string network_mode = 5;
+  optional double relative_position_on_link = 7;
+}
+
+enum EventType {
+  UNKNOWN = 0;
+  ENTERED_LINK = 1;
+  LEFT_LINK = 2;
+  VEHICLE_ENTERS_TRAFFIC = 3;
+  VEHICLE_LEAVES_TRAFFIC = 4;
 }
 
 message BatchRequest {
   repeated Request requests = 1;
+  optional bytes request_id = 2;
 }
 
 message Ack {
-  bool message_received = 1;
-  bytes request_id = 2;
+  bool success = 1;
+  optional bytes request_id = 2;
 }
