@@ -5,15 +5,17 @@ import "google/protobuf/empty.proto";
 
 service EventSharingService {
   rpc UpdateRouter (Request) returns (Ack);
-  rpc UpdateRouterBatch (BatchRequest) returns (Ack);
+  rpc UpdateRouterBatch (BatchRequest) returns (google.protobuf.Empty);
   rpc Shutdown (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 message Request {
-  string link_type = 1;
+  string event_type = 1;
   string link_id = 2;
   string vehicle_id = 3;
   uint32 now = 4;
-  bytes request_id = 5;
+  optional string network_mode = 5;
+  optional string driver_id = 6;
+  optional double relative_position_on_link = 7;
 }
 
 message BatchRequest {

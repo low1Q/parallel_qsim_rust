@@ -2,7 +2,7 @@ pub mod event_sharing_logger;
 
 use crate::external_services::{RequestAdapter, RequestAdapterFactory, RequestToAdapter};
 use crate::generated::event_sharing::event_sharing_service_client::EventSharingServiceClient;
-use crate::generated::event_sharing::{Request, BatchRequest, Ack};
+use crate::generated::event_sharing::{Ack, BatchRequest, Request};
 use crate::simulation::config::Config;
 use crate::simulation::data_structures::RingIter;
 use derive_builder::Builder;
@@ -31,20 +31,24 @@ impl RequestToAdapter for InternalEventSharingRequest {}
 
 #[derive(Debug, PartialEq, Builder)]
 pub struct InternalEventSharingRequestPayload {
-    pub link_type: String,
+    pub event_type: String,
     pub link_id: String,
     pub vehicle_id: String,
     pub now: u32,
-    #[builder(default = "Uuid::now_v7()")]
-    pub uuid: Uuid,
+    pub driver_id: Option<String>,
+    pub network_mode: Option<String>,
+    pub relative_position_on_link: Option<f64>,
 }
 
 impl InternalEventSharingRequestPayload {
     pub fn equals_ignoring_uuid(&self, other: &Self) -> bool {
-        self.link_type == other.link_type
+        self.event_type == other.event_type
             && self.link_id == other.link_id
             && self.vehicle_id == other.vehicle_id
             && self.now == other.now
+            && self.driver_id == other.driver_id
+            && self.network_mode == other.network_mode
+            && self.relative_position_on_link == other.relative_position_on_link
     }
 }
 
@@ -57,11 +61,13 @@ pub struct InternalEventSharingResponse {
 impl From<InternalEventSharingRequestPayload> for Request {
     fn from(req: InternalEventSharingRequestPayload) -> Self {
         Request {
-            link_type: req.link_type,
+            event_type: req.event_type,
             link_id: req.link_id,
             vehicle_id: req.vehicle_id,
             now: req.now,
-            request_id: req.uuid.as_bytes().to_vec(),
+            network_mode: req.network_mode,
+            driver_id: req.driver_id,
+            relative_position_on_link: req.relative_position_on_link,
         }
     }
 }
@@ -100,7 +106,11 @@ impl EventSharingServiceAdapterFactory {
             batch_interval_millisecs: 1,
         }
     }
-    pub fn with_batch_params(mut self, max_batch_size: usize, batch_interval_millisecs: u64) -> Self {
+    pub fn with_batch_params(
+        mut self,
+        max_batch_size: usize,
+        batch_interval_millisecs: u64,
+    ) -> Self {
         self.max_batch_size = max_batch_size;
         self.batch_interval_millisecs = batch_interval_millisecs;
         self
@@ -135,7 +145,12 @@ impl RequestAdapterFactory<InternalEventSharingRequest> for EventSharingServiceA
             }
             res.push(client);
         }
-        EventSharingServiceAdapter::new(res, self.shutdown_handles, self.max_batch_size, self.batch_interval_millisecs)
+        EventSharingServiceAdapter::new(
+            res,
+            self.shutdown_handles,
+            self.max_batch_size,
+            self.batch_interval_millisecs,
+        )
     }
 }
 
@@ -161,6 +176,7 @@ impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter 
     }
 
     fn on_shutdown(&mut self) {
+        info!("EventSharingServiceAdapter: Starting shutdown sequence...");
         // Flush remaining buffer synchronously (spawn tasks to send them)
         let leftover = {
             let mut buf = self.buffer.lock().unwrap();
@@ -172,26 +188,22 @@ impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter 
                 let batch_req = BatchRequest {
                     requests: leftover.into_iter().map(Request::from).collect(),
                 };
-                let _ = client.update_router_batch(batch_req).await;
+                if let Err(e) = client.update_router_batch(batch_req).await {
+                    eprintln!("Final flush failed: {}", e);
+                }
             });
             self.shutdown_handles.lock().unwrap().push(_h);
         }
 
         // Stop flusher task if present
         if let Some(handle) = self.flusher_handle.take() {
-            // flusher erwartet Shutdown via join handle; wir just wait for it in shutdown_handles
-            self.shutdown_handles.lock().unwrap().push(handle);
+            handle.abort();
+            info!("EventSharingServiceAdapter: Periodic flusher task aborted.");
         }
         // Shutdown all clients
-        for client in &mut self.clients {
-            let mut c = client.clone();
-            let handle = tokio::spawn(async move {
-                c.shutdown(())
-                    .await
-                    .expect("Error while shutting down event sharing service");
-            });
-            self.shutdown_handles.lock().unwrap().push(handle);
-        }
+        self.clients = RingIter::new(vec![]);
+
+        info!("EventSharingServiceAdapter: All clients dropped and resources cleared.");
     }
 }
 
@@ -211,7 +223,9 @@ impl EventSharingServiceAdapter {
             // Flusher-Task: periodisch flushen
             let mut clients_ring_inner = clients_ring_for_flusher;
             tokio::spawn(async move {
-                let interval = tokio::time::interval(std::time::Duration::from_millis(batch_interval_millisecs));
+                let interval = tokio::time::interval(std::time::Duration::from_millis(
+                    batch_interval_millisecs,
+                ));
                 tokio::pin!(interval);
                 loop {
                     interval.as_mut().tick().await;
