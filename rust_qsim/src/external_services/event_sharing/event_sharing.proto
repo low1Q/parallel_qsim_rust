@@ -20,6 +20,18 @@ message Request {
 
 message BatchRequest {
   repeated Request requests = 1;
+
+  // true genau dann, wenn mit diesem Batch ein Bin explizit abgeschlossen wird
+  bool publish_snapshot = 2;
+
+  // Start des abgeschlossenen Bins, z.B. 1800
+  uint32 completed_bin_start = 3;
+
+  // Ende des abgeschlossenen Bins exklusiv, z.B. 2700 für [1800, 2700)
+  uint32 completed_bin_end = 4;
+
+  // true, wenn dieser abgeschlossene Bin keine Events enthielt
+  bool empty_bin = 5;
 }
 
 message Ack {

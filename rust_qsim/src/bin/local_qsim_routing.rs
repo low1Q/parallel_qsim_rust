@@ -8,10 +8,10 @@ use rust_qsim::simulation::controller::local_controller::LocalControllerBuilder;
 use rust_qsim::simulation::controller::ExternalServices;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use rust_qsim::simulation::scenario::GlobalScenario;
+use std::collections::HashMap;
 use std::sync::{Arc, Barrier};
 
 use rust_qsim::external_services::routing::RoutingServiceAdapterFactory;
-use std::collections::HashMap;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -20,6 +20,10 @@ struct RoutingCommandLineArgs {
     router_ip: String,
     #[clap(flatten)]
     delegate: rust_qsim::simulation::config::CommandLineArgs,
+    #[arg(long, default_value_t = 450)]
+    event_sharing_bin_size_secs: u32,
+    #[arg(long, default_value_t = 10000)]
+    event_sharing_closed_bin_batch_size: usize,
 }
 
 fn main() {
@@ -27,7 +31,7 @@ fn main() {
     let args = RoutingCommandLineArgs::parse();
     let config = Arc::new(Config::from(args.delegate));
 
-    // Creating the routing adapter is only one task, so we add 1 and not the number of worker threads!
+    // Creating the routing adapter and the event sharing adapter are only two task, so we add 2 and not the number of worker threads!
     let total_thread_count = config.partitioning().num_parts + 2;
     let barrier = Arc::new(Barrier::new(total_thread_count as usize));
 
@@ -44,6 +48,7 @@ fn main() {
     //     executor.shutdown_handles(),
     // );
 
+    // Car-Routing-Service-Adapter
     let car_routing_executor = AsyncExecutor::from_config(&config, barrier.clone());
     let car_routing_factory = RoutingServiceAdapterFactory::new(
         vec![&args.router_ip],
@@ -51,13 +56,22 @@ fn main() {
         car_routing_executor.shutdown_handles(),
     );
 
+    // EventSharing-Service-Adapter
+    //
+    // Wichtige Semantik:
+    // - Der Adapter segmentiert Events clientseitig in 900s-Time-Bins.
+    // - Ein Bin wird erst dann abgeschlossen und publiziert, wenn durch ein späteres Event
+    //   sicher ist, dass keine weiteren Events mehr für diesen Bin kommen können.
+    // - Die alte batch-/flush-orientierte Logik wird nicht mehr verwendet.
     let event_sharing_executor = AsyncExecutor::from_config(&config, barrier.clone());
     let event_sharing_factory = EventSharingServiceAdapterFactory::new(
         vec![&args.router_ip],
         config.clone(),
         event_sharing_executor.shutdown_handles(),
     )
-    .with_batch_params(10000, 10);
+        .with_bin_size_secs(args.event_sharing_bin_size_secs)
+        .with_closed_bin_batch_size(args.event_sharing_closed_bin_batch_size)
+        .with_batch_params(10000, 10);
 
     // Spawning the routing service adapter in a separate thread. The adapter will be run in its own tokio runtime.
     // This function returns
