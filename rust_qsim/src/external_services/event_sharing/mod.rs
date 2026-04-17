@@ -22,7 +22,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 const DEFAULT_BIN_SIZE_SECS: u32 = 900;
-const BIN_FINALIZATION_LAG_SECS: u32 = 1;
+const BIN_FINALIZATION_LAG_SECS: u32 = 2;
 const DEFAULT_MAX_EVENTS_PER_BIN_CHUNK: usize = 10000;
 
 fn bin_start(t: u32, bin_size: u32) -> u32 {
