@@ -88,7 +88,7 @@ impl ActivityEngine {
     }
 
     fn receive_agent(&mut self, now: u32, agent: AsleepSimulationAgent) {
-        // emmit act start event
+        // emit act start event
         let act = agent.agent.curr_act();
         self.comp_env.events_publisher_borrow_mut().publish_event(
             &ActivityStartEventBuilder::default()
