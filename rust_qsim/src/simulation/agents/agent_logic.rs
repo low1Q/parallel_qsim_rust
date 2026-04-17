@@ -14,11 +14,47 @@ use crate::simulation::population::trip_structure_utils::{
 use crate::simulation::population::{
     InternalActivity, InternalLeg, InternalPerson, InternalPlan, InternalPlanElement, InternalRoute,
 };
+use crate::simulation::profiling::car_routing::{RoutingRequestCsvRow, RoutingRequestCsvWriter};
+use crate::simulation::profiling::router_blocking_wait::{
+    RoutingBlockingWaitCsvRow, RoutingBlockingWaitCsvWriter,
+};
 use crate::simulation::time_queue::{EndTime, Identifiable};
+use once_cell::sync::Lazy;
 use std::fmt::{Debug, Formatter};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex as StdMutex;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot::Receiver;
-use tracing::trace;
+use tracing::{trace, warn};
+
+static ROUTING_REQUEST_CSV: Lazy<StdMutex<Option<RoutingRequestCsvWriter>>> = Lazy::new(|| {
+    let path = std::env::var("ROUTING_RUST_CSV")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/output/routing/routing_requests_rust.csv"));
+
+    let (writer, _guard) = RoutingRequestCsvWriter::new(&path);
+
+    // Für die erste einfache Version behalten wir den Writer global.
+    // Der WriterGuard wird hier absichtlich geleakt, damit flush on drop erst am Prozessende passiert.
+    std::mem::forget(_guard);
+
+    StdMutex::new(Some(writer))
+});
+
+static ROUTING_BLOCKING_WAIT_CSV: Lazy<StdMutex<Option<RoutingBlockingWaitCsvWriter>>> =
+    Lazy::new(|| {
+        let path = std::env::var("ROUTING_BLOCKING_WAIT_CSV")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/output/routing/routing_blocking_wait_rust.csv"));
+
+        let (writer, guard) = RoutingBlockingWaitCsvWriter::new(&path);
+        std::mem::forget(guard);
+        StdMutex::new(Some(writer))
+    });
+
+static TOTAL_ROUTING_BLOCKING_WAIT_NS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PlanBasedSimulationLogic {
@@ -30,6 +66,28 @@ pub struct PlanBasedSimulationLogic {
 pub struct AdaptivePlanBasedSimulationLogic {
     delegate: PlanBasedSimulationLogic,
     route_receiver: Option<Receiver<InternalRoutingResponse>>,
+
+    // Systemübergreifende Startzeit des Route-Calls
+    route_call_start: Option<i64>,
+
+    agent_sent_request_adapter: Option<i64>,
+    // Reale Systemzeiten des Prozesses für Profiling
+    route_call_started_instant: Option<Instant>,
+    agent_received_response_adapter_instant: Option<Instant>,
+    agent_replaced_route_instant: Option<Instant>,
+    // Absolute reale Zeiten für CSV/Korrelation
+    agent_received_response_adapter: Option<i64>,
+
+    agent_replaced_route: Option<i64>,
+
+    route_replaced_at_sim_time: Option<u32>,
+
+    last_route_end_to_end_sim_time: Option<u32>,
+    current_route_request_departure_time: Option<u32>,
+    current_route_request_now: Option<u32>,
+
+    current_route_request_mode: Option<String>,
+    last_route_blocking_wait_ns: Option<u128>,
 }
 
 impl Debug for AdaptivePlanBasedSimulationLogic {
@@ -292,7 +350,42 @@ impl AdaptivePlanBasedSimulationLogic {
         Self {
             delegate: PlanBasedSimulationLogic::new(person),
             route_receiver: None,
+            route_call_start: None,
+            agent_sent_request_adapter: None,
+            route_call_started_instant: None,
+            agent_received_response_adapter_instant: None,
+            agent_replaced_route_instant: None,
+            agent_received_response_adapter: None,
+            agent_replaced_route: None,
+            route_replaced_at_sim_time: None,
+            last_route_end_to_end_sim_time: None,
+            current_route_request_now: None,
+            current_route_request_departure_time: None,
+            current_route_request_mode: None,
+            last_route_blocking_wait_ns: None,
         }
+    }
+
+    pub fn route_call_start_realtime(&self) -> Option<i64> {
+        self.route_call_start
+    }
+    pub fn route_call_started_at(&self) -> &Option<Instant> {
+        &self.route_call_started_instant
+    }
+    pub fn route_received_at(&self) -> &Option<Instant> {
+        &self.agent_received_response_adapter_instant
+    }
+    pub fn route_replaced_at(&self) -> &Option<Instant> {
+        &self.agent_replaced_route_instant
+    }
+    pub fn route_replaced_at_sim_time(&self) -> &Option<u32> {
+        &self.route_replaced_at_sim_time
+    }
+    pub fn last_route_end_to_end_sim_time(&self) -> &Option<u32> {
+        &self.last_route_end_to_end_sim_time
+    }
+    pub fn total_routing_blocking_wait_ns() -> u64 {
+        TOTAL_ROUTING_BLOCKING_WAIT_NS.load(Ordering::Relaxed)
     }
 
     fn react_to_woke_up(
@@ -305,6 +398,10 @@ impl AdaptivePlanBasedSimulationLogic {
             // If we already have a route request in progress, we do not call the router again.
             return;
         }
+
+//         if (departure_time - now <= 300){
+//             return;
+//         }
 
         let preplan = self
             .next_leg()
@@ -322,13 +419,20 @@ impl AdaptivePlanBasedSimulationLogic {
         self.call_router(comp_env, departure_time, now);
     }
 
-    #[tracing::instrument(level = "trace", skip(comp_env), fields(uuid = tracing::field::Empty, person_id = self.delegate.id().external(), mode = tracing::field::Empty))]
+    #[tracing::instrument(level = "trace", skip(comp_env), fields(uuid = tracing::field::Empty, person_id = self.delegate.id().external(), mode = tracing::field::Empty
+    ))]
     fn call_router(
         &mut self,
         comp_env: &mut ThreadLocalComputationalEnvironment,
         departure_time: u32,
         now: u32,
     ) {
+        let route_call_started_at = Instant::now();
+        let route_call_start_realtime = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("SystemTime before UNIX EPOCH!")
+            .as_nanos() as i64;
+
         let (send, recv) = tokio::sync::oneshot::channel();
 
         let trip = find_trip_starting_at_activity_default(
@@ -360,6 +464,10 @@ impl AdaptivePlanBasedSimulationLogic {
             )
         });
 
+        self.current_route_request_departure_time = Some(departure_time);
+        self.current_route_request_now = Some(now);
+        self.current_route_request_mode = Some(mode.clone());
+
         let payload = InternalRoutingRequestPayloadBuilder::default()
             .person_id(self.delegate.id().external().to_string())
             .from_link(origin.link_id.external().to_string())
@@ -371,6 +479,8 @@ impl AdaptivePlanBasedSimulationLogic {
             .mode(mode.clone())
             .departure_time(departure_time)
             .now(now)
+            .route_call_start_realtime(route_call_start_realtime)
+            .adapter_sent_request_grpc(None)
             .build()
             .unwrap();
 
@@ -380,6 +490,13 @@ impl AdaptivePlanBasedSimulationLogic {
             payload,
             response_tx: send,
         };
+        self.agent_sent_request_adapter = None;
+        let agent_sent_request_adapter = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("SystemTime before UNIX EPOCH!")
+            .as_nanos() as i64;
+
+        self.agent_sent_request_adapter = Some(agent_sent_request_adapter);
 
         comp_env
             .get_service::<Sender<InternalRoutingRequest>>(ExternalServiceType::Routing(mode.clone()))
@@ -388,6 +505,20 @@ impl AdaptivePlanBasedSimulationLogic {
             .expect("InternalRoutingRequest channel closed unexpectedly");
 
         self.route_receiver = Some(recv);
+
+        self.route_call_started_instant = Some(route_call_started_at);
+        self.route_call_start = Some(route_call_start_realtime);
+
+        self.agent_received_response_adapter_instant = None;
+        self.agent_replaced_route_instant = None;
+        self.agent_received_response_adapter = None;
+        self.agent_replaced_route = None;
+
+        self.route_replaced_at_sim_time = None;
+
+        self.last_route_end_to_end_sim_time = None;
+
+        self.last_route_blocking_wait_ns = None;
     }
 
     #[tracing::instrument(level = "trace", fields(person_id = self.delegate.id().external()))]
@@ -399,17 +530,76 @@ impl AdaptivePlanBasedSimulationLogic {
 
         let response = self.blocking_recv(_now);
 
+        let route_received_at = Instant::now();
+        let route_received_realtime = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("SystemTime before UNIX EPOCH!")
+            .as_nanos() as i64;
+
+        self.agent_received_response_adapter_instant = Some(route_received_at);
+        self.agent_received_response_adapter = Some(route_received_realtime);
+
         trace!(uuid = response.request_id.as_u128());
 
+        let response_for_csv = response.clone();
         self.replace_next_trip(response, _now);
+        // Aktualisierte Route wurde eingefügt zum Zeitpunkt now.
+        let route_replaced_at = Instant::now();
+        let route_replaced_realtime = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("SystemTime before UNIX EPOCH!")
+            .as_nanos() as i64;
+
+        self.agent_replaced_route_instant = Some(route_replaced_at);
+        self.agent_replaced_route = Some(route_replaced_realtime);
+        self.route_replaced_at_sim_time = Some(_now);
+
+        if let Some(start_sim_time) = self.current_route_request_now {
+            self.last_route_end_to_end_sim_time = Some(_now.saturating_sub(start_sim_time));
+        }
+        let now = self.current_route_request_now.unwrap_or_default();
+        let departure_time = self
+            .current_route_request_departure_time
+            .unwrap_or_default();
+        let mode = self
+            .current_route_request_mode
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if crate::simulation::profiling::flags::performance_logging_enabled() {
+            self.write_routing_csv_row(&response_for_csv, now, departure_time, &mode);
+        } else if crate::simulation::profiling::flags::only_route_blocking_wait_enabled() {
+            self.write_routing_blocking_wait_csv_row(&response_for_csv, now, departure_time, &mode);
+        }
+
+        self.current_route_request_departure_time = None;
+        self.current_route_request_mode = None;
     }
 
     #[tracing::instrument(level = "trace", fields(person_id = self.delegate.id().external()))]
     fn blocking_recv(&mut self, _now: u32) -> InternalRoutingResponse {
         let receiver = self.route_receiver.take().unwrap();
+
+        // Blockierungszeit für das Warten auf die Antwort des Routers messen
+        let wait_start = if crate::simulation::profiling::flags::any_measurement_enabled() {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let response = receiver
             .blocking_recv()
             .expect("InternalRoutingRequest channel closed unexpectedly");
+
+        // Blockierungszeit für das Warten auf die Antwort des Routers messen
+        if let Some(wait_start) = wait_start {
+            let wait_ns = wait_start.elapsed().as_nanos();
+            self.last_route_blocking_wait_ns = Some(wait_ns);
+            // Totale Blockierungszeit für diesen Rank aufsummieren
+            TOTAL_ROUTING_BLOCKING_WAIT_NS.fetch_add(wait_ns as u64, Ordering::Relaxed);
+        } else {
+            self.last_route_blocking_wait_ns = None;
+        }
 
         trace!(uuid = response.request_id.as_u128());
 
@@ -417,7 +607,8 @@ impl AdaptivePlanBasedSimulationLogic {
     }
 
     /// Replaces the next trip in the plan with the legs and activities from the given InternalRoutingResponse.
-    #[tracing::instrument(level = "trace", skip(response), fields(person_id = self.delegate.id().external()))]
+    #[tracing::instrument(level = "trace", skip(response), fields(person_id = self.delegate.id().external()
+    ))]
     fn replace_next_trip(&mut self, response: InternalRoutingResponse, _now: u32) {
         trace!(uuid = response.request_id.as_u128());
 
@@ -448,6 +639,74 @@ impl AdaptivePlanBasedSimulationLogic {
             .iter()
             .position(|e| e.as_activity().map(|a| a as *const _) == Some(origin_ptr))
             .expect("Didn't find the activity in the plan")
+    }
+
+    fn write_routing_csv_row(
+        &self,
+        response: &InternalRoutingResponse,
+        now: u32,
+        departure_time: u32,
+        mode: &str,
+    ) {
+        if !crate::simulation::profiling::flags::performance_logging_enabled() {
+            return;
+        }
+
+        let row = RoutingRequestCsvRow {
+            rank: std::env::var("RUST_QSIM_RANK").unwrap_or_else(|_| "unknown".to_string()),
+            request_id: response.request_id.to_string(),
+            person_id: self.delegate.id().external().to_string(),
+            mode: mode.to_string(),
+            now,
+            departure_time,
+            route_call_start: self.route_call_start.unwrap_or_default(),
+            agent_sent_request_adapter: self.agent_sent_request_adapter.unwrap_or_default(),
+            adapter_received_request_agent: response
+                .adapter_received_request_agent
+                .unwrap_or_default(),
+            adapter_sent_request_grpc: response.adapter_sent_request_grpc.unwrap_or_default(),
+            java_routing_service_sent_response_grpc: response
+                .java_routing_service_sent_response_grpc
+                .unwrap_or_default(),
+            adapter_received_response_grpc: response
+                .adapter_received_response_grpc
+                .unwrap_or_default(),
+            adapter_sent_response_agent: response.adapter_sent_response_agent.unwrap_or_default(),
+            agent_received_response_adapter: self
+                .agent_received_response_adapter
+                .unwrap_or_default(),
+            agent_replaced_route: self.agent_replaced_route.unwrap_or_default(),
+            route_end_to_end_sim_time: self.last_route_end_to_end_sim_time.unwrap_or_default(),
+            route_blocking_wait_ns: self.last_route_blocking_wait_ns.unwrap_or_default(),
+        };
+
+        let mut guard = ROUTING_REQUEST_CSV.lock().unwrap();
+        if let Some(writer) = guard.as_mut() {
+            writer.write_row(&row);
+        }
+    }
+
+    fn write_routing_blocking_wait_csv_row(
+        &self,
+        response: &InternalRoutingResponse,
+        now: u32,
+        departure_time: u32,
+        mode: &str,
+    ) {
+        let row = RoutingBlockingWaitCsvRow {
+            rank: std::env::var("RUST_QSIM_RANK").unwrap_or_else(|_| "unknown".to_string()),
+            request_id: response.request_id.to_string(),
+            person_id: self.delegate.id().external().to_string(),
+            mode: mode.to_string(),
+            now,
+            departure_time,
+            route_blocking_wait_ns: self.last_route_blocking_wait_ns.unwrap_or_default(),
+        };
+
+        let mut guard = ROUTING_BLOCKING_WAIT_CSV.lock().unwrap();
+        if let Some(writer) = guard.as_mut() {
+            writer.write_row(&row);
+        }
     }
 }
 
@@ -508,6 +767,7 @@ mod tests {
         let response = InternalRoutingResponse {
             elements: vec![InternalPlanElement::Leg(make_leg("bike"))],
             request_id: Uuid::now_v7(),
+            ..Default::default()
         };
 
         logic.replace_next_trip(response.clone(), 0);

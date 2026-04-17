@@ -184,6 +184,7 @@ impl RequestAdapter<InternalRoutingRequest> for MockRoutingAdapter {
         assert!(
             self.requests[0].equals_ignoring_uuid(&InternalRoutingRequestPayload {
                 person_id: "1".to_string(),
+                uuid: Default::default(),
                 from_link: "1".to_string(),
                 from_x: -25000.,
                 from_y: 0.,
@@ -193,7 +194,8 @@ impl RequestAdapter<InternalRoutingRequest> for MockRoutingAdapter {
                 mode: "car".to_string(),
                 departure_time: 21600,
                 now: 21000,
-                uuid: Default::default(),
+                adapter_sent_request_grpc: Some(21000),
+                route_call_start_realtime: 20000,
             })
         );
     }

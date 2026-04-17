@@ -376,6 +376,11 @@ mod tests {
                 .send(InternalRoutingResponse {
                     elements: vec![InternalPlanElement::Leg(new_leg())],
                     request_id: payload.uuid,
+                    adapter_received_request_agent: None,
+                    adapter_sent_request_grpc: None,
+                    java_routing_service_sent_response_grpc: None,
+                    adapter_received_response_grpc: None,
+                    adapter_sent_response_agent: None,
                 })
                 .unwrap();
         })

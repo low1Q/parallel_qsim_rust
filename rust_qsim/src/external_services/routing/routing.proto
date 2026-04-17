@@ -21,10 +21,13 @@ message Request {
   uint32 departure_time = 9;
   uint32 now = 10;
   bytes request_id = 11;
+  optional int64 route_call_start_realtime = 12;
+  optional int64 rust_adapter_sent_request_grpc = 13;
 }
 
 message Response {
   repeated population.Leg legs = 1;
   repeated population.Activity activities = 2;
   bytes request_id = 3;
+  optional int64 java_routing_service_sent_response_grpc = 4;
 }

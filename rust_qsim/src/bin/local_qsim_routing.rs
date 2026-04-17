@@ -11,6 +11,7 @@ use rust_qsim::simulation::scenario::GlobalScenario;
 use std::collections::HashMap;
 use std::sync::{Arc, Barrier};
 
+use chrono::Local;
 use rust_qsim::external_services::routing::RoutingServiceAdapterFactory;
 
 #[derive(Parser, Debug, Clone)]
@@ -20,16 +21,76 @@ struct RoutingCommandLineArgs {
     router_ip: String,
     #[clap(flatten)]
     delegate: rust_qsim::simulation::config::CommandLineArgs,
-    #[arg(long, default_value_t = 450)]
+    #[arg(long, default_value_t = 100)]
     event_sharing_bin_size_secs: u32,
     #[arg(long, default_value_t = 10000)]
     event_sharing_closed_bin_batch_size: usize,
+    #[arg(long, default_value_t = false)]
+    disable_all_measurements: bool,
+
+    #[arg(long, default_value_t = false)]
+    only_route_blocking_wait: bool,
+
+    #[arg(long, default_value_t = false)]
+    enable_performance_logging: bool,
+
+    #[arg(long, default_value_t = 600)]
+    preplanning_horizon: u32,
+
+    #[arg(long, default_value_t = 1)]
+    num_routing_threads: u32,
+
+    #[arg(long, default_value = "")]
+    custom_string: String,
 }
 
 fn main() {
     let _guard = init_std_out_logging_thread_local();
     let args = RoutingCommandLineArgs::parse();
     let config = Arc::new(Config::from(args.delegate));
+
+    let parts = config.partitioning().num_parts;
+    let bin_size = args.event_sharing_bin_size_secs;
+    let batch_size = args.event_sharing_closed_bin_batch_size;
+    let horizon = args.preplanning_horizon.clone();
+    let threads = args.num_routing_threads;
+    let custom_string = args.custom_string.clone();
+    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+
+    if args.disable_all_measurements {
+        std::env::set_var("ENABLE_PERFORMANCE_LOGGING", "false");
+        std::env::set_var("ONLY_ROUTE_BLOCKING_WAIT", "false");
+    } else if args.only_route_blocking_wait {
+        std::env::set_var("ENABLE_PERFORMANCE_LOGGING", "false");
+        std::env::set_var("ONLY_ROUTE_BLOCKING_WAIT", "true");
+    } else if args.enable_performance_logging {
+        std::env::set_var("ENABLE_PERFORMANCE_LOGGING", "true");
+        std::env::set_var("ONLY_ROUTE_BLOCKING_WAIT", "false");
+    } else {
+        std::env::set_var("ENABLE_PERFORMANCE_LOGGING", "false");
+        std::env::set_var("ONLY_ROUTE_BLOCKING_WAIT", "false");
+    }
+
+    let routing_csv = format!(
+        "rust-routing-requests-bin{}-threads{}-PH{}-batch{}-parts{}-{}-{}.csv",
+        bin_size, threads, horizon, batch_size, parts, custom_string, timestamp
+    );
+    let event_csv = format!(
+        "rust-event-sharing-summary-bin{}-threads{}-PH{}-batch{}-parts{}-{}-{}.csv",
+        bin_size, threads, horizon, batch_size, parts, custom_string, timestamp
+    );
+    let blocking_csv = format!(
+        "rust-routing-blocking-wait-bin{}-threads{}-PH{}-batch{}-parts{}-{}-{}.csv",
+        bin_size, threads, horizon, batch_size, parts, custom_string, timestamp
+    );
+
+    std::env::set_var("ROUTING_RUST_CSV", routing_csv);
+    std::env::set_var("EVENT_SHARING_SUMMARY_RUST_CSV", event_csv);
+    std::env::set_var("ROUTING_BLOCKING_WAIT_CSV", blocking_csv);
+
+    // Solange der Rank nicht sauber aus der Laufumgebung durchgereicht wird,
+    // setzen wir hier einen Default. Der einzelne QSim-Prozess kann das überschreiben.
+    std::env::set_var("RUST_QSIM_RANK", "unknown");
 
     // Creating the routing adapter and the event sharing adapter are only two task, so we add 2 and not the number of worker threads!
     let total_thread_count = config.partitioning().num_parts + 2;
@@ -69,9 +130,9 @@ fn main() {
         config.clone(),
         event_sharing_executor.shutdown_handles(),
     )
-        .with_bin_size_secs(args.event_sharing_bin_size_secs)
-        .with_closed_bin_batch_size(args.event_sharing_closed_bin_batch_size)
-        .with_batch_params(10000, 10);
+    .with_bin_size_secs(args.event_sharing_bin_size_secs)
+    .with_closed_bin_batch_size(args.event_sharing_closed_bin_batch_size)
+    .with_batch_params(10000, 10);
 
     // Spawning the routing service adapter in a separate thread. The adapter will be run in its own tokio runtime.
     // This function returns

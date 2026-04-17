@@ -4,7 +4,6 @@ package event_sharing;
 import "google/protobuf/empty.proto";
 
 service EventSharingService {
-  rpc UpdateRouter (Request) returns (Ack);
   rpc UpdateRouterBatch (BatchRequest) returns (google.protobuf.Empty);
   rpc Shutdown (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
@@ -16,6 +15,8 @@ message Request {
   optional string network_mode = 5;
   optional string driver_id = 6;
   optional double relative_position_on_link = 7;
+  optional int64 event_detected_at_Realtime = 8;
+  optional int64 adapter_arrived_at_realtime = 9;
 }
 
 message BatchRequest {
@@ -32,9 +33,10 @@ message BatchRequest {
 
   // true, wenn dieser abgeschlossene Bin keine Events enthielt
   bool empty_bin = 5;
+  int64 batch_sent_at_Realtime = 6;
+  bytes batch_id = 7;
 }
 
 message Ack {
   bool message_received = 1;
-  bytes request_id = 2;
 }

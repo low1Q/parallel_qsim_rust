@@ -1,4 +1,8 @@
 pub mod routing;
+pub mod car_routing;
+pub mod event_sharing;
+pub mod flags;
+pub mod router_blocking_wait;
 
 use std::fmt::Debug;
 use std::fs;
