@@ -40,6 +40,9 @@ struct RoutingCommandLineArgs {
     #[arg(long, default_value_t = 1)]
     num_routing_threads: u32,
 
+    #[arg(long, default_value_t = 1)]
+    num_partitions: u32,
+
     #[arg(long, default_value = "")]
     custom_string: String,
 }
