@@ -5,7 +5,7 @@ extern crate core;
 pub mod experiments;
 pub mod simulation;
 
-mod dvrp;
+//mod dvrp;
 pub mod external_services;
 pub mod generated;
 #[cfg(test)]

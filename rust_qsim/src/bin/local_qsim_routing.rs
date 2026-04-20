@@ -1,5 +1,5 @@
 use clap::Parser;
-use rust_qsim::external_services::event_sharing::event_sharing_logger::make_event_sharing_subscriber;
+use rust_qsim::external_services::event_sharing::event_sharing_logger::{make_event_sharing_subscriber, print_event_sharing_stats};
 use rust_qsim::external_services::event_sharing::EventSharingServiceAdapterFactory;
 use rust_qsim::external_services::{AdapterHandleBuilder, AsyncExecutor, ExternalServiceType};
 use rust_qsim::simulation::config::Config;
@@ -119,7 +119,7 @@ fn main() {
 
     // EventSharing-Service-Adapter
     //
-    // Wichtige Semantik:
+    // wichtige Semantik:
     // - Der Adapter segmentiert Events clientseitig in 900s-Time-Bins.
     // - Ein Bin wird erst dann abgeschlossen und publiziert, wenn durch ein späteres Event
     //   sicher ist, dass keine weiteren Events mehr für diesen Bin kommen können.
@@ -212,5 +212,7 @@ fn main() {
                 .build()
                 .unwrap(),
         ],
-    )
+    );
+
+    print_event_sharing_stats();
 }

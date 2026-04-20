@@ -2,15 +2,29 @@ use crate::external_services::event_sharing::{
     InternalEventSharingRequest, InternalEventSharingRequestPayload,
 };
 use crate::simulation::events::{
-    EventTrait, EventsPublisher, LinkEnterEvent, LinkLeaveEvent, OnEventFnBuilder
-    ,
+    EventsPublisher, LinkEnterEvent, LinkLeaveEvent, OnEventFnBuilder,
 };
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
-use std::cell::Cell;
 
+static DROPPED_FULL: OnceLock<AtomicU64> = OnceLock::new();
+static DROPPED_CLOSED: OnceLock<AtomicU64> = OnceLock::new();
+static SENT_OK: OnceLock<AtomicU64> = OnceLock::new();
 
+fn dropped_full_counter() -> &'static AtomicU64 {
+    DROPPED_FULL.get_or_init(|| AtomicU64::new(0))
+}
+
+fn dropped_closed_counter() -> &'static AtomicU64 {
+    DROPPED_CLOSED.get_or_init(|| AtomicU64::new(0))
+}
+
+fn sent_ok_counter() -> &'static AtomicU64 {
+    SENT_OK.get_or_init(|| AtomicU64::new(0))
+}
 
 // Erzeugt einen `Box<OnEventFnBuilder>` der beim Ausführen zwei Handler einträgt:
 // - für `LinkEnterEvent`
@@ -23,106 +37,71 @@ pub fn make_event_sharing_subscriber(
     sender: Arc<Sender<InternalEventSharingRequest>>,
 ) -> Box<OnEventFnBuilder> {
     Box::new(move |events: &mut EventsPublisher| {
-        let sender = sender.clone();
-        let seq_in_partition = Cell::new(0u64);
-        events.on_any(move |ev: &dyn EventTrait| {
+        let sender_enter = sender.clone();
+        let sender_leave = sender.clone();
+        let seq_in_partition = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let seq_enter = seq_in_partition.clone();
+        let seq_leave = seq_in_partition.clone();
+        //events.on_any(move |ev: &dyn EventTrait| {
+        events.on::<LinkEnterEvent, _>(move |ev| {
+            let e = ev
+                .as_any()
+                .downcast_ref::<LinkEnterEvent>()
+                .expect("Listener got wrong event type.");
             // LinkEnterEvent
-            if let Some(e) = ev.as_any().downcast_ref::<LinkEnterEvent>() {
-                let next_seq = seq_in_partition.get() + 1;
-                seq_in_partition.set(next_seq);
-                let event_detected_at_realtime = unix_nanos_now();
-                let payload = InternalEventSharingRequestPayload {
-                    event_type: LinkEnterEvent::TYPE.to_string(),
-                    link_id: e.link.external().to_string(),
-                    vehicle_id: e.vehicle.external().to_string(),
-                    now: e.time,
-                    driver_id: None,
-                    network_mode: None,
-                    relative_position_on_link: None,
-                    event_detected_at_realtime: Some(event_detected_at_realtime),
-                    logger_send_started_realtime: None,
-                    adapter_arrived_at_realtime: None,
-                    seq_in_partition: next_seq,
-                };
-                send_event(
-                    &sender,
-                    InternalEventSharingRequest { payload },
-                    "LinkEnterEvent",
-                );
-                return;
-            }
-            // LinkLeaveEvent
-            else if let Some(e) = ev.as_any().downcast_ref::<LinkLeaveEvent>() {
-                let next_seq = seq_in_partition.get() + 1;
-                seq_in_partition.set(next_seq);
-                let event_detected_at_realtime = unix_nanos_now();
-                let payload = InternalEventSharingRequestPayload {
-                    event_type: LinkLeaveEvent::TYPE.to_string(),
-                    link_id: e.link.external().to_string(),
-                    vehicle_id: e.vehicle.external().to_string(),
-                    now: e.time,
-                    driver_id: None,
-                    network_mode: None,
-                    relative_position_on_link: None,
-                    event_detected_at_realtime: Some(event_detected_at_realtime),
-                    logger_send_started_realtime: None,
-                    adapter_arrived_at_realtime: None,
-                    seq_in_partition: next_seq,
-                };
+            //if let Some(e) = ev.as_any().downcast_ref::<LinkEnterEvent>() {
+            let next_seq = seq_enter.get() + 1;
+            seq_enter.set(next_seq);
+            let event_detected_at_realtime = unix_nanos_now();
+            let payload = InternalEventSharingRequestPayload {
+                event_type: LinkEnterEvent::TYPE.to_string(),
+                link_id: e.link.external().to_string(),
+                vehicle_id: e.vehicle.external().to_string(),
+                now: e.time,
+                driver_id: None,
+                network_mode: None,
+                relative_position_on_link: None,
+                event_detected_at_realtime: Some(event_detected_at_realtime),
+                logger_send_started_realtime: None,
+                adapter_arrived_at_realtime: None,
+                seq_in_partition: next_seq,
+            };
+            send_event(
+                &sender_enter,
+                InternalEventSharingRequest { payload },
+                "LinkEnterEvent",
+            );
+        });
+        // LinkLeaveEvent
+        //else if let Some(e) = ev.as_any().downcast_ref::<LinkLeaveEvent>() {
+        events.on::<LinkLeaveEvent, _>(move |ev| {
+            let e = ev
+                .as_any()
+                .downcast_ref::<LinkLeaveEvent>()
+                .expect("Listener got wrong event type.");
+            let next_seq = seq_leave.get() + 1;
+            seq_leave.set(next_seq);
+            let event_detected_at_realtime = unix_nanos_now();
+            let payload = InternalEventSharingRequestPayload {
+                event_type: LinkLeaveEvent::TYPE.to_string(),
+                link_id: e.link.external().to_string(),
+                vehicle_id: e.vehicle.external().to_string(),
+                now: e.time,
+                driver_id: None,
+                network_mode: None,
+                relative_position_on_link: None,
+                event_detected_at_realtime: Some(event_detected_at_realtime),
+                logger_send_started_realtime: None,
+                adapter_arrived_at_realtime: None,
+                seq_in_partition: next_seq,
+            };
 
-                send_event(
-                    &sender,
-                    InternalEventSharingRequest { payload },
-                    "LinkLeaveEvent",
-                );
-                return;
-            }
-            // // VehicleEntersTrafficEvent
-            // else if let Some(e) = ev.as_any().downcast_ref::<VehicleEntersTrafficEvent>() {
-            //     let event_detected_at_realtime = unix_nanos_now();
-            //     let payload = InternalEventSharingRequestPayload {
-            //         event_type: VehicleEntersTrafficEvent::TYPE.to_string(),
-            //         now: e.time,
-            //         link_id: e.link.external().to_string(),
-            //         vehicle_id: e.vehicle.external().to_string(),
-            //         driver_id: Some(e.vehicle.external().to_string()),
-            //         network_mode: Some(e.mode.external().to_string()),
-            //         relative_position_on_link: Some(e.relative_position_on_link),
-            //         event_detected_at_realtime: Some(event_detected_at_realtime),
-            //         logger_send_started_realtime: None,
-            //         adapter_arrived_at_realtime: None,
-            //     };
-            //
-            //     send_event(
-            //         &sender,
-            //         InternalEventSharingRequest { payload },
-            //         "VehicleEntersTrafficEvent",
-            //     );
-            //     return;
-            // }
-            // // VehicleLeavesTrafficEvent
-            // else if let Some(e) = ev.as_any().downcast_ref::<VehicleLeavesTrafficEvent>() {
-            //     let event_detected_at_realtime = unix_nanos_now();
-            //     let payload = InternalEventSharingRequestPayload {
-            //         event_type: VehicleLeavesTrafficEvent::TYPE.to_string(),
-            //         now: e.time,
-            //         link_id: e.link.external().to_string(),
-            //         vehicle_id: e.vehicle.external().to_string(),
-            //         driver_id: Some(e.vehicle.external().to_string()),
-            //         network_mode: Some(e.mode.external().to_string()),
-            //         relative_position_on_link: Some(e.relative_position_on_link),
-            //         event_detected_at_realtime: Some(event_detected_at_realtime),
-            //         logger_send_started_realtime: None,
-            //         adapter_arrived_at_realtime: None,
-            //     };
-            //
-            //     send_event(
-            //         &sender,
-            //         InternalEventSharingRequest { payload },
-            //         "VehicleLeavesTrafficEvent",
-            //     );
-            //     return;
-            // }
+            send_event(
+                &sender_leave,
+                InternalEventSharingRequest { payload },
+                "LinkLeaveEvent",
+            );
+            return;
         });
     })
 }
@@ -136,24 +115,89 @@ fn send_event(
     let logger_send_started_realtime = unix_nanos_now();
     req.payload.logger_send_started_realtime = Some(logger_send_started_realtime);
 
-    if let Err(e) = sender.blocking_send(req) {
-        eprintln!("EventSharing sender closed — failed to send {}: {}", name, e);
-    }
-
-    // match sender.try_send(req) {
-    //     Ok(_) => {
-    //     }
-    //     Err(TrySendError::Full(_)) => {
-    //         eprintln!("EventSharing queue full — dropped {}", name);
-    //     }
-    //     Err(TrySendError::Closed(_)) => {
-    //         eprintln!("EventSharing sender closed — dropped {}", name);
-    //     }
+    // if let Err(e) = sender.blocking_send(req) {
+    //     eprintln!("EventSharing sender closed — failed to send {}: {}", name, e);
     // }
+
+    match sender.try_send(req) {
+        Ok(_) => {
+            let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            if sent % 1_000_000 == 0 {
+                eprintln!(
+                    "[event_sharing] sent_ok={} dropped_full={} dropped_closed={}",
+                    sent,
+                    dropped_full_counter().load(Ordering::Relaxed),
+                    dropped_closed_counter().load(Ordering::Relaxed)
+                );
+            }
+        }
+        Err(TrySendError::Full(_)) => {
+            eprintln!("EventSharing queue full — dropped {}", name);
+            let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            if dropped % 10_000 == 0 {
+                eprintln!(
+                    "[event_sharing] queue full: dropped_full={} dropped_closed={} sent_ok={} latest_type={}",
+                    dropped,
+                    dropped_closed_counter().load(Ordering::Relaxed),
+                    sent_ok_counter().load(Ordering::Relaxed),
+                    name
+                );
+            }
+        }
+        Err(TrySendError::Closed(_)) => {
+            eprintln!("EventSharing sender closed — dropped {}", name);
+            let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!(
+                "[event_sharing] sender closed: dropped_closed={} dropped_full={} sent_ok={} latest_type={}",
+                dropped,
+                dropped_full_counter().load(Ordering::Relaxed),
+                sent_ok_counter().load(Ordering::Relaxed),
+                name
+            );
+        }
+    }
 }
 fn unix_nanos_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("SystemTime before UNIX EPOCH!")
         .as_nanos() as i64
+}
+
+pub fn print_event_sharing_stats() {
+    let sent_ok = sent_ok_counter().load(Ordering::Relaxed);
+    let dropped_full = dropped_full_counter().load(Ordering::Relaxed);
+    let dropped_closed = dropped_closed_counter().load(Ordering::Relaxed);
+
+    let dropped_total = dropped_full + dropped_closed;
+    let total_attempted = sent_ok + dropped_total;
+
+    let sent_pct = if total_attempted > 0 {
+        100.0 * (sent_ok as f64) / (total_attempted as f64)
+    } else {
+        0.0
+    };
+
+    let dropped_full_pct = if total_attempted > 0 {
+        100.0 * (dropped_full as f64) / (total_attempted as f64)
+    } else {
+        0.0
+    };
+
+    let dropped_closed_pct = if total_attempted > 0 {
+        100.0 * (dropped_closed as f64) / (total_attempted as f64)
+    } else {
+        0.0
+    };
+
+    eprintln!(
+        "[event_sharing] final stats: sent_ok={} ({:.4}%), dropped_full={} ({:.4}%), dropped_closed={} ({:.4}%), total_attempted={}",
+        sent_ok,
+        sent_pct,
+        dropped_full,
+        dropped_full_pct,
+        dropped_closed,
+        dropped_closed_pct,
+        total_attempted
+    );
 }
