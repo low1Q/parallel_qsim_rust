@@ -169,11 +169,9 @@ impl From<InternalEventSharingRequestPayload> for Request {
             link_id: req.link_id,
             vehicle_id: req.vehicle_id,
             now: req.now,
-            network_mode: req.network_mode,
-            driver_id: req.driver_id,
-            relative_position_on_link: req.relative_position_on_link,
             event_detected_at_realtime: req.event_detected_at_realtime,
             adapter_arrived_at_realtime: req.adapter_arrived_at_realtime,
+            sequence_number: Some(req.seq_in_partition),
         }
     }
 }

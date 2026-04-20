@@ -12,11 +12,9 @@ message Request {
   string link_id = 2;
   string vehicle_id = 3;
   uint32 now = 4;
-  optional string network_mode = 5;
-  optional string driver_id = 6;
-  optional double relative_position_on_link = 7;
-  optional int64 event_detected_at_Realtime = 8;
-  optional int64 adapter_arrived_at_realtime = 9;
+  optional int64 event_detected_at_Realtime = 5;
+  optional int64 adapter_arrived_at_realtime = 6;
+  optional uint64 sequence_number = 7;
 }
 
 message BatchRequest {

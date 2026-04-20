@@ -178,26 +178,9 @@ pub fn print_event_sharing_stats() {
         0.0
     };
 
-    let dropped_full_pct = if total_attempted > 0 {
-        100.0 * (dropped_full as f64) / (total_attempted as f64)
-    } else {
-        0.0
-    };
-
-    let dropped_closed_pct = if total_attempted > 0 {
-        100.0 * (dropped_closed as f64) / (total_attempted as f64)
-    } else {
-        0.0
-    };
-
     eprintln!(
-        "[event_sharing] final stats: sent_ok={} ({:.4}%), dropped_full={} ({:.4}%), dropped_closed={} ({:.4}%), total_attempted={}",
+        "[event_sharing] final stats: sent_ok={} ({:.4}%).",
         sent_ok,
         sent_pct,
-        dropped_full,
-        dropped_full_pct,
-        dropped_closed,
-        dropped_closed_pct,
-        total_attempted
     );
 }
