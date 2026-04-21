@@ -122,38 +122,14 @@ fn send_event(
     match sender.try_send(req) {
         Ok(_) => {
             let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
-            if sent % 1_000_000 == 0 {
-                eprintln!(
-                    "[event_sharing] sent_ok={} dropped_full={} dropped_closed={}",
-                    sent,
-                    dropped_full_counter().load(Ordering::Relaxed),
-                    dropped_closed_counter().load(Ordering::Relaxed)
-                );
-            }
         }
         Err(TrySendError::Full(_)) => {
             eprintln!("EventSharing queue full — dropped {}", name);
             let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
-            if dropped % 10_000 == 0 {
-                eprintln!(
-                    "[event_sharing] queue full: dropped_full={} dropped_closed={} sent_ok={} latest_type={}",
-                    dropped,
-                    dropped_closed_counter().load(Ordering::Relaxed),
-                    sent_ok_counter().load(Ordering::Relaxed),
-                    name
-                );
-            }
         }
         Err(TrySendError::Closed(_)) => {
             eprintln!("EventSharing sender closed — dropped {}", name);
             let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
-            eprintln!(
-                "[event_sharing] sender closed: dropped_closed={} dropped_full={} sent_ok={} latest_type={}",
-                dropped,
-                dropped_full_counter().load(Ordering::Relaxed),
-                sent_ok_counter().load(Ordering::Relaxed),
-                name
-            );
         }
     }
 }
@@ -180,7 +156,6 @@ pub fn print_event_sharing_stats() {
 
     eprintln!(
         "[event_sharing] final stats: sent_ok={} ({:.4}%).",
-        sent_ok,
-        sent_pct,
+        sent_ok, sent_pct,
     );
 }

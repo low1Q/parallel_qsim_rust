@@ -327,7 +327,7 @@ impl RequestAdapter<InternalEventSharingRequest> for EventSharingServiceAdapter 
                         .map(|state| state.pending_events.len())
                         .unwrap_or(0);
                     warn!(
-                     "EventSharingServiceAdapter: shutdown with unfinalized bins starting at [{}, {}). Latest buffered bin start is {}. These bins are NOT finalized because they are not known to be safely closed. latest: {}, oldest:  {}",
+                     "EventSharingServiceAdapter: shutdown with unfinalized bins starting at [{}, {}). Latest buffered bin start is {}. Latest: {}, Oldest: {}",
                      oldest,
                      bin_end(oldest, self.bin_size_secs),
                      latest,
