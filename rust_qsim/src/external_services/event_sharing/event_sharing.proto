@@ -12,10 +12,6 @@ message Request {
   string link_id = 2;
   string vehicle_id = 3;
   uint32 now = 4;
-  optional int64 event_detected_at_Realtime = 5;
-  optional int64 adapter_arrived_at_realtime = 6;
-  optional uint64 sequence_number = 7;
-  optional uint32 participant_id = 8;
 }
 
 message BatchRequest {
@@ -29,11 +25,6 @@ message BatchRequest {
 
   // Ende des abgeschlossenen Bins exklusiv, z.B. 2700 für [1800, 2700)
   uint32 completed_bin_end = 4;
-
-  // true, wenn dieser abgeschlossene Bin keine Events enthielt
-  bool empty_bin = 5;
-  int64 batch_sent_at_Realtime = 6;
-  bytes batch_id = 7;
 }
 
 message Ack {

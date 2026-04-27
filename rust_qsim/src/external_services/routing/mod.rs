@@ -13,13 +13,6 @@ use tokio::task::JoinHandle;
 use tracing::info;
 use uuid::Uuid;
 
-fn unix_nanos_now() -> i64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("SystemTime before UNIX EPOCH!")
-        .as_nanos() as i64
-}
-
 pub struct RoutingServiceAdapter {
     clients: RingIter<RoutingServiceClient<tonic::transport::Channel>>,
     shutdown_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
@@ -45,8 +38,6 @@ pub struct InternalRoutingRequestPayload {
     pub mode: String,
     pub departure_time: u32,
     pub now: u32,
-    pub route_call_start_realtime: i64,
-    pub adapter_sent_request_grpc: Option<i64>,
     #[builder(default = "Uuid::now_v7()")]
     pub uuid: Uuid,
 }
@@ -63,7 +54,6 @@ impl InternalRoutingRequestPayload {
             && self.mode == other.mode
             && self.departure_time == other.departure_time
             && self.now == other.now
-            && self.route_call_start_realtime == other.route_call_start_realtime
     }
 }
 
@@ -71,12 +61,6 @@ impl InternalRoutingRequestPayload {
 pub struct InternalRoutingResponse {
     pub(crate) elements: Vec<InternalPlanElement>,
     pub(crate) request_id: Uuid,
-
-    pub(crate) adapter_received_request_agent: Option<i64>,
-    pub(crate) adapter_sent_request_grpc: Option<i64>,
-    pub(crate) java_routing_service_sent_response_grpc: Option<i64>,
-    pub(crate) adapter_received_response_grpc: Option<i64>,
-    pub(crate) adapter_sent_response_agent: Option<i64>,
 }
 
 impl From<InternalRoutingRequestPayload> for Request {
@@ -93,8 +77,6 @@ impl From<InternalRoutingRequestPayload> for Request {
             departure_time: req.departure_time,
             now: req.now,
             request_id: req.uuid.as_bytes().to_vec(),
-            route_call_start_realtime: Option::from(req.route_call_start_realtime),
-            rust_adapter_sent_request_grpc: Option::from(req.adapter_sent_request_grpc.unwrap_or_default()),
         }
     }
 }
@@ -132,11 +114,6 @@ impl From<Response> for InternalRoutingResponse {
         Self {
             elements,
             request_id: Uuid::from_bytes(value.request_id.try_into().unwrap()),
-            adapter_received_request_agent: None,
-            adapter_sent_request_grpc: None,
-            java_routing_service_sent_response_grpc: Some(value.java_routing_service_sent_response_grpc.unwrap_or_default()),
-            adapter_received_response_grpc: None,
-            adapter_sent_response_agent: None,
         }
     }
 }
@@ -196,27 +173,9 @@ impl RequestAdapterFactory<InternalRoutingRequest> for RoutingServiceAdapterFact
 
 impl RequestAdapter<InternalRoutingRequest> for RoutingServiceAdapter {
     fn on_request(&mut self, mut internal_req: InternalRoutingRequest) {
-        let full_measurement = crate::simulation::profiling::flags::performance_logging_enabled();
-
-        let adapter_received_request_agent = if full_measurement {
-            Some(unix_nanos_now())
-        } else {
-            None
-        };
-
         let mut client = self.clients.next_cloned();
 
         tokio::spawn(async move {
-            let rust_adapter_sent_request_grpc = if full_measurement {
-                Some(unix_nanos_now())
-            } else {
-                None
-            };
-
-            if full_measurement {
-                internal_req.payload.adapter_sent_request_grpc = rust_adapter_sent_request_grpc;
-            }
-
             let request = Request::from(internal_req.payload);
 
             let response = client
@@ -224,33 +183,13 @@ impl RequestAdapter<InternalRoutingRequest> for RoutingServiceAdapter {
                 .await
                 .expect("Error while calling routing service");
 
-            let adapter_received_response_grpc = if full_measurement {
-                Some(unix_nanos_now())
-            } else {
-                None
-            };
-
-            let java_routing_service_sent_response_grpc = Some(response.get_ref().java_routing_service_sent_response_grpc.unwrap_or_default());
-
-            let mut internal_res = InternalRoutingResponse::from(response.into_inner());
-            internal_res.adapter_received_request_agent = adapter_received_request_agent;
-            internal_res.adapter_sent_request_grpc = rust_adapter_sent_request_grpc;
-            internal_res.adapter_received_response_grpc = adapter_received_response_grpc;
-            internal_res.java_routing_service_sent_response_grpc = java_routing_service_sent_response_grpc;
-
-            let adapter_sent_response_agent = if full_measurement {
-                Some(unix_nanos_now())
-            } else {
-                None
-            };
-            internal_res.adapter_sent_response_agent = adapter_sent_response_agent;
+            let internal_res = InternalRoutingResponse::from(response.into_inner());
 
             let _ = internal_req.response_tx.send(internal_res);
         });
     }
 
     fn on_shutdown(&mut self) {
-
         for client in &mut self.clients {
             let mut c = client.clone();
             let handle = tokio::spawn(async move {
