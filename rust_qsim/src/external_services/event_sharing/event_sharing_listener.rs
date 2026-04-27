@@ -124,15 +124,15 @@ fn send_event(
 
     match sender.try_send(req) {
         Ok(_) => {
-            //let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
         Err(TrySendError::Full(_)) => {
             eprintln!("EventSharing queue full — dropped {}", name);
-            //let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
         Err(TrySendError::Closed(_)) => {
             eprintln!("EventSharing sender closed — dropped {}", name);
-            //let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
     }
 }
