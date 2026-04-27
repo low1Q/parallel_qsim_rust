@@ -15,6 +15,7 @@ message Request {
   optional int64 event_detected_at_Realtime = 5;
   optional int64 adapter_arrived_at_realtime = 6;
   optional uint64 sequence_number = 7;
+  optional uint32 participant_id = 8;
 }
 
 message BatchRequest {

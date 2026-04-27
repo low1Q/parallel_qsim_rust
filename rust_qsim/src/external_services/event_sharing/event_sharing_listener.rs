@@ -35,6 +35,7 @@ fn sent_ok_counter() -> &'static AtomicU64 {
 // `Fn(&dyn EventTrait)` und du kannst trotzdem an `ev.link`/`ev.vehicle`/`ev.time`.
 pub fn make_event_sharing_subscriber(
     sender: Arc<Sender<InternalEventSharingRequest>>,
+    partition_id: u32,
 ) -> Box<OnEventFnBuilder> {
     Box::new(move |events: &mut EventsPublisher| {
         let sender_enter = sender.clone();
@@ -65,6 +66,7 @@ pub fn make_event_sharing_subscriber(
                 logger_send_started_realtime: None,
                 adapter_arrived_at_realtime: None,
                 seq_in_partition: next_seq,
+                partition_id,
             };
             send_event(
                 &sender_enter,
@@ -94,6 +96,7 @@ pub fn make_event_sharing_subscriber(
                 logger_send_started_realtime: None,
                 adapter_arrived_at_realtime: None,
                 seq_in_partition: next_seq,
+                partition_id,
             };
 
             send_event(
@@ -121,15 +124,15 @@ fn send_event(
 
     match sender.try_send(req) {
         Ok(_) => {
-            let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            //let sent = sent_ok_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
         Err(TrySendError::Full(_)) => {
             eprintln!("EventSharing queue full — dropped {}", name);
-            let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            //let dropped = dropped_full_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
         Err(TrySendError::Closed(_)) => {
             eprintln!("EventSharing sender closed — dropped {}", name);
-            let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
+            //let dropped = dropped_closed_counter().fetch_add(1, Ordering::Relaxed) + 1;
         }
     }
 }

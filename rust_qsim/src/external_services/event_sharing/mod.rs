@@ -1,4 +1,4 @@
-pub mod event_sharing_logger;
+pub mod event_sharing_listener;
 
 use crate::external_services::{RequestAdapter, RequestAdapterFactory, RequestToAdapter};
 use crate::generated::event_sharing::event_sharing_service_client::EventSharingServiceClient;
@@ -140,9 +140,7 @@ pub struct InternalEventSharingRequestPayload {
     pub adapter_arrived_at_realtime: Option<i64>,
     pub logger_send_started_realtime: Option<i64>,
     pub seq_in_partition: u64,
-    //pub logger_send_finished_realtime: Option<i64>,
-    //pub logger_send_duration_ns: Option<u128>,
-    //pub logger_send_started_sim_time: Option<u32>,
+    pub partition_id: u32,
 }
 
 impl InternalEventSharingRequestPayload {
@@ -172,6 +170,7 @@ impl From<InternalEventSharingRequestPayload> for Request {
             event_detected_at_realtime: req.event_detected_at_realtime,
             adapter_arrived_at_realtime: req.adapter_arrived_at_realtime,
             sequence_number: Some(req.seq_in_partition),
+            participant_id: Some(req.partition_id),
         }
     }
 }

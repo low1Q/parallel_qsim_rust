@@ -1,5 +1,5 @@
 use clap::Parser;
-use rust_qsim::external_services::event_sharing::event_sharing_logger::{make_event_sharing_subscriber, print_event_sharing_stats};
+use rust_qsim::external_services::event_sharing::event_sharing_listener::{make_event_sharing_subscriber, print_event_sharing_stats};
 use rust_qsim::external_services::event_sharing::EventSharingServiceAdapterFactory;
 use rust_qsim::external_services::{AdapterHandleBuilder, AsyncExecutor, ExternalServiceType};
 use rust_qsim::simulation::config::Config;
@@ -176,7 +176,7 @@ fn main() {
     let num_parts = config.partitioning().num_parts;
     for part in 0..num_parts {
         // create a new Box<OnEventFnBuilder> for this partition
-        let subscriber = make_event_sharing_subscriber(sender_arc.clone());
+        let subscriber = make_event_sharing_subscriber(sender_arc.clone(), part);
         events_subscribers_per_partition.insert(part, vec![subscriber]);
     }
 
