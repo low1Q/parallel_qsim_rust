@@ -1,6 +1,4 @@
 use clap::Parser;
-use rust_qsim::external_services::event_sharing::event_sharing_listener::{make_event_sharing_subscriber, print_event_sharing_stats};
-use rust_qsim::external_services::event_sharing::EventSharingServiceAdapterFactory;
 use rust_qsim::external_services::{AdapterHandleBuilder, AsyncExecutor, ExternalServiceType};
 use rust_qsim::simulation::config::Config;
 use rust_qsim::simulation::controller;
@@ -8,7 +6,6 @@ use rust_qsim::simulation::controller::local_controller::LocalControllerBuilder;
 use rust_qsim::simulation::controller::ExternalServices;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use rust_qsim::simulation::scenario::GlobalScenario;
-use std::collections::HashMap;
 use std::sync::{Arc, Barrier};
 
 use chrono::Local;
@@ -96,7 +93,7 @@ fn main() {
     std::env::set_var("RUST_QSIM_RANK", "unknown");
 
     // Creating the routing adapter and the event sharing adapter are only two task, so we add 2 and not the number of worker threads!
-    let total_thread_count = config.partitioning().num_parts + 2;
+    let total_thread_count = config.partitioning().num_parts + 1;
     let barrier = Arc::new(Barrier::new(total_thread_count as usize));
 
     // Configuring the routing adapter. We need
@@ -127,15 +124,15 @@ fn main() {
     // - Ein Bin wird erst dann abgeschlossen und publiziert, wenn durch ein späteres Event
     //   sicher ist, dass keine weiteren Events mehr für diesen Bin kommen können.
     // - Die alte batch-/flush-orientierte Logik wird nicht mehr verwendet.
-    let event_sharing_executor = AsyncExecutor::from_config(&config, barrier.clone());
-    let event_sharing_factory = EventSharingServiceAdapterFactory::new(
-        vec![&args.router_ip],
-        config.clone(),
-        event_sharing_executor.shutdown_handles(),
-    )
-    .with_bin_size_secs(args.event_sharing_bin_size_secs)
-    .with_closed_bin_batch_size(args.event_sharing_closed_bin_batch_size)
-    .with_batch_params(10000, 10);
+    // let event_sharing_executor = AsyncExecutor::from_config(&config, barrier.clone());
+    // let event_sharing_factory = EventSharingServiceAdapterFactory::new(
+    //     vec![&args.router_ip],
+    //     config.clone(),
+    //     event_sharing_executor.shutdown_handles(),
+    // )
+    // .with_bin_size_secs(args.event_sharing_bin_size_secs)
+    // .with_closed_bin_batch_size(args.event_sharing_closed_bin_batch_size)
+    // .with_batch_params(10000, 10);
 
     // Spawning the routing service adapter in a separate thread. The adapter will be run in its own tokio runtime.
     // This function returns
@@ -145,16 +142,16 @@ fn main() {
 
     let (car_routing_handle, car_routing_send, car_routing_send_sd) =
         car_routing_executor.spawn_thread("car_router", car_routing_factory);
-    let (event_sharing_handle, event_sharing_send, event_sharing_send_sd) =
-        event_sharing_executor.spawn_thread("event_sharing", event_sharing_factory);
+    // let (event_sharing_handle, event_sharing_send, event_sharing_send_sd) =
+    //     event_sharing_executor.spawn_thread("event_sharing", event_sharing_factory);
 
     // The request sender is passed to the controller.
 
     let mut services = ExternalServices::default();
-    services.insert(
-        ExternalServiceType::EventSharing("event_sharing".into()),
-        event_sharing_send.clone().into(),
-    );
+    // services.insert(
+    //     ExternalServiceType::EventSharing("event_sharing".into()),
+    //     event_sharing_send.clone().into(),
+    // );
     services.insert(
         ExternalServiceType::Routing("car".into()),
         car_routing_send.clone().into(),
@@ -165,26 +162,26 @@ fn main() {
 
     // Build a HashMap<u32, Vec<Box<OnEventFnBuilder>>> with one subscriber per partition.
     // NB: Box<dyn FnOnce(..)> is not Clone, so we call make_event_sharing_subscriber(...) once per partition.
-    let mut events_subscribers_per_partition: HashMap<
-        u32,
-        Vec<Box<rust_qsim::simulation::events::OnEventFnBuilder>>,
-    > = HashMap::new();
+    // let mut events_subscribers_per_partition: HashMap<
+    //     u32,
+    //     Vec<Box<rust_qsim::simulation::events::OnEventFnBuilder>>,
+    // > = HashMap::new();
 
     // Wrap the sender in Arc so each subscriber can capture a clone cheaply
-    let sender_arc = Arc::new(event_sharing_send.clone());
+    // let sender_arc = Arc::new(event_sharing_send.clone());
 
-    let num_parts = config.partitioning().num_parts;
-    for part in 0..num_parts {
-        // create a new Box<OnEventFnBuilder> for this partition
-        let subscriber = make_event_sharing_subscriber(sender_arc.clone(), part);
-        events_subscribers_per_partition.insert(part, vec![subscriber]);
-    }
+    // let num_parts = config.partitioning().num_parts;
+    // for part in 0..num_parts {
+    //     // create a new Box<OnEventFnBuilder> for this partition
+    //     let subscriber = make_event_sharing_subscriber(sender_arc.clone(), part);
+    //     events_subscribers_per_partition.insert(part, vec![subscriber]);
+    // }
 
     let controller = LocalControllerBuilder::default()
         .global_scenario(scenario)
         .external_services(services)
         .global_barrier(barrier)
-        .events_subscriber_per_partition(events_subscribers_per_partition)
+        //.events_subscriber_per_partition(events_subscribers_per_partition)
         .build()
         .unwrap();
     // ####################################################################################################
@@ -209,13 +206,11 @@ fn main() {
                 .handle(car_routing_handle)
                 .build()
                 .unwrap(),
-            AdapterHandleBuilder::default()
-                .shutdown_sender(event_sharing_send_sd)
-                .handle(event_sharing_handle)
-                .build()
-                .unwrap(),
+            // AdapterHandleBuilder::default()
+            //     .shutdown_sender(event_sharing_send_sd)
+            //     .handle(event_sharing_handle)
+            //     .build()
+            //     .unwrap(),
         ],
     );
-
-    print_event_sharing_stats();
 }
