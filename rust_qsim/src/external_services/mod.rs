@@ -13,11 +13,11 @@ use tracing::{info, warn};
 pub mod routing;
 pub mod event_sharing;
 
-/// This trait is a marker trait for requests that can be sent to an adapter.
+// This trait is a marker trait for requests that can be sent to an adapter.
 pub trait RequestToAdapter: Debug + Send {}
 
-/// This struct is a wrapper around the JoinHandle of the adapter thread. Additionally, it holds a shutdown sender for the adapter.
-/// The purpose of this struct is to manage the lifecycle of the adapter thread, allowing for sending shutdown signals before waiting for the thread to finish.
+//This struct is a wrapper around the JoinHandle of the adapter thread. Additionally, it holds a shutdown sender for the adapter.
+// The purpose of this struct is to manage the lifecycle of the adapter thread, allowing for sending shutdown signals before waiting for the thread to finish.
 #[derive(Debug, Builder)]
 #[builder(pattern = "owned")]
 pub struct AdapterHandle {
@@ -25,32 +25,32 @@ pub struct AdapterHandle {
     pub(super) shutdown_sender: tokio::sync::watch::Sender<bool>,
 }
 
-/// This enum defines the types of external services that can be used in the simulation.
-/// It works as a key for different service adapters in the simulation.
+// This enum defines the types of external services that can be used in the simulation.
+// It works as a key for different service adapters in the simulation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalServiceType {
     Routing(String),
     EventSharing(String),
 }
 
-/// This trait defines a factory for creating request adapters.
+// This trait defines a factory for creating request adapters.
 pub trait RequestAdapterFactory<T: RequestToAdapter>: Send {
-    /// This method builds the request adapter. It returns a future that resolves to the adapter instance.
+    // This method builds the request adapter. It returns a future that resolves to the adapter instance.
     fn build(self) -> impl std::future::Future<Output = impl RequestAdapter<T>>;
 
-    /// This method creates a channel for sending requests to the adapter.
+    // This method creates a channel for sending requests to the adapter.
     fn request_channel(&self, buffer: usize) -> (Sender<T>, Receiver<T>) {
         mpsc::channel(buffer)
     }
 }
 
-/// This trait defines the behavior of a request adapter. A request adapter processes incoming requests of type T.
-/// One request adapter instance is run in a separate thread with its own tokio runtime. It might use multiple threads internally for the tokio runtime.
-///
-/// Design thoughts:
-/// - This trait does not depend on async/await directly to allow for more flexibility in implementations.
-///   I.e. it should allow sync implementations which should not have dependencies on async concepts.
-/// - The on_request/on_shutdown method can spawn async tasks internally if needed.
+// This trait defines the behavior of a request adapter. A request adapter processes incoming requests of type T.
+// One request adapter instance is run in a separate thread with its own tokio runtime. It might use multiple threads internally for the tokio runtime.
+//
+// Design thoughts:
+// - This trait does not depend on async/await directly to allow for more flexibility in implementations.
+//   I.e. it should allow sync implementations which should not have dependencies on async concepts.
+// - The on_request/on_shutdown method can spawn async tasks internally if needed.
 pub trait RequestAdapter<T: RequestToAdapter> {
     fn on_request(&mut self, req: T);
 
@@ -69,7 +69,7 @@ pub struct AsyncExecutor {
 }
 
 impl AsyncExecutor {
-    /// Spawns a thread running a routing service adapter.
+    // Spawns a thread running a routing service adapter.
     pub fn spawn_thread<R: RequestToAdapter + 'static, F: RequestAdapterFactory<R> + 'static>(
         self,
         name: &str,
@@ -86,7 +86,7 @@ impl AsyncExecutor {
         (handle, send, send_sd)
     }
 
-    /// This function executes the adapter in a separate thread with its own tokio runtime.
+    // This function executes the adapter in a separate thread with its own tokio runtime.
     fn execute_adapter<T: RequestToAdapter>(
         self,
         mut receiver: Receiver<T>,
@@ -147,7 +147,7 @@ impl AsyncExecutor {
         drop(_guard);
     }
 
-    /// This method creates a shutdown channel for the adapter.
+    // This method creates a shutdown channel for the adapter.
     fn shutdown_channel(
         &self,
     ) -> (

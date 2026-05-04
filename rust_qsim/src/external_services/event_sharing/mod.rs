@@ -33,26 +33,26 @@ fn bin_end(bin_start: u32, bin_size: u32) -> u32 {
     bin_start + bin_size
 }
 
-/// Ein Bin [start, end) gilt erst dann als sicher abgeschlossen,
-/// wenn ein Event mit t >= end + 2 eingetroffen ist.
-///
-/// Begründung:
-/// - Simulation läuft in ganzzahligen Sekunden
-/// - Events kommen zeitlich sortiert
-/// - bei t = end + 1 kann theoretisch noch ein Event mit t < end kommen
-/// - erst bei t = end + 2 ist ausgeschlossen, dass noch ein Event aus dem
-/// gerade abgeschlossenen Bin nachkommt
+// Ein Bin [start, end) gilt erst dann als sicher abgeschlossen,
+// wenn ein Event mit t >= end + 1 eingetroffen ist.
+//
+// Begründung:
+// - Simulation läuft in ganzzahligen Sekunden
+// - Events kommen zeitlich sortiert
+// - bei t = end kann theoretisch noch ein Event mit t < end kommen
+// - erst bei t = end + 1 ist ausgeschlossen, dass noch ein Event aus dem
+// gerade abgeschlossenen Bin nachkommt
 fn is_bin_safely_closed(current_bin_end: u32, event_time: u32) -> bool {
     event_time >= current_bin_end + BIN_FINALIZATION_LAG_SECS
 }
 
 #[derive(Debug)]
 struct BinState {
-    /// Noch nicht gesendete Events dieses Bins.
+    // Noch nicht gesendete Events dieses Bins.
     pending_events: Vec<InternalEventSharingRequestPayload>,
-    /// Ob dieser Bin jemals ein Event gesehen hat.
+    // Ob dieser Bin jemals ein Event gesehen hat.
     saw_any_event: bool,
-    /// Nur für Logging.
+    // Nur für Logging.
     sent_chunk_count: usize,
 }
 
@@ -108,11 +108,11 @@ pub struct EventSharingServiceAdapter {
 
     bin_size_secs: u32,
     max_events_per_bin_chunk: usize,
-    /// Start des ältesten noch NICHT finalisierten Bins.
+    // Start des ältesten noch NICHT finalisierten Bins.
     oldest_unfinalized_bin_start: Option<u32>,
-    /// Zustand pro Bin.
+    // Zustand pro Bin.
     bins: BTreeMap<u32, BinState>,
-    /// Serieller Versandpfad nach Java.
+    // Serieller Versandpfad nach Java.
     outgoing_tx: Sender<OutgoingBinChunk>,
 
     metrics: Arc<AdapterMetrics>,
@@ -183,8 +183,8 @@ impl From<Ack> for InternalEventSharingResponse {
     }
 }
 
-/// Factory for creating event sharing service adapters.
-/// Connects to the event sharing service at the given IP address.
+// Factory for creating event sharing service adapters.
+// Connects to the event sharing service at the given IP address.
 pub struct EventSharingServiceAdapterFactory {
     ip: Vec<String>,
     config: Arc<Config>,
@@ -208,7 +208,7 @@ impl EventSharingServiceAdapterFactory {
         }
     }
 
-    /// Kompatibilitäts-No-Op
+    // Kompatibilitäts-No-Op
     pub fn with_batch_params(self, _max_batch_size: usize, _batch_interval_millisecs: u64) -> Self {
         self
     }
